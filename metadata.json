@@ -1,0 +1,6 @@
+{
+  "name": "VisLit Explorer — IEEE VIS Literature & Topic Visual Analytics",
+  "description": "Interactive literature exploration system for IEEE VIS publications featuring LDA topic streamgraphs, topic correlation matrices, force-directed citation networks, and author/paper analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
