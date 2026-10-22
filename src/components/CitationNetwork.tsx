@@ -433,7 +433,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-slate-900">
-                Referencing &amp; Citation Network ({totalSubfieldCount})
+                Referencing &amp; Citation Network ({totalSubfieldCount} Indexed Landmarks)
               </h3>
               <button
                 type="button"
@@ -447,7 +447,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
             <p className="text-xs text-slate-500 mt-0.5">
               Showing Core Citation Backbone ({positionedNodes.length} key papers ·{' '}
               {positionedLinks.length} links) — expand full network to explore all{' '}
-              {totalSubfieldCount} subfield papers (+{totalCrossTopicCount} cross-topic citations)
+              {totalSubfieldCount} indexed landmark papers (+{totalCrossTopicCount} cross-topic citations)
             </p>
           </div>
 
@@ -841,7 +841,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
         {/* Subset Summary Footer matching Topic Literature Ranking */}
         <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-3">
           <span className="text-xs text-slate-500 font-mono-tabular">
-            Showing {positionedNodes.length} core backbone papers of {totalSubfieldCount} topic papers (+{totalCrossTopicCount} cross-topic)
+            Showing {positionedNodes.length} core backbone papers of {totalSubfieldCount} indexed landmarks (+{totalCrossTopicCount} cross-topic)
           </span>
           <button
             type="button"
@@ -884,7 +884,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                     {fullGraphLayout.positionedLinks.length} citation links)
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Covers all {totalSubfieldCount} classified papers in this subfield plus {totalCrossTopicCount} directly cited/citing cross-topic papers
+                    Covers all {totalSubfieldCount} indexed landmark papers in this subfield (from {activeTopic.paperCount.toLocaleString()} total subfield papers) plus {totalCrossTopicCount} directly cited/citing cross-topic papers
                   </p>
                 </div>
               </div>

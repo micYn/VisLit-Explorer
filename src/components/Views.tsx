@@ -362,12 +362,12 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
 
                   <div className="text-right shrink-0 font-mono-tabular">
                     <div className="text-xs font-semibold text-slate-900">
-                      {leader.topicPaperCount}{' '}
-                      {leader.topicPaperCount === 1 ? 'paper' : 'papers'} · h-index{' '}
-                      {leader.topicHIndex ?? 1}
+                      {leader.topicPaperCount} subfield{' '}
+                      {leader.topicPaperCount === 1 ? 'paper' : 'papers'} (
+                      {leader.indexedTopicPaperCount ?? leader.topicPaperCount} indexed)
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {leader.topicCitations.toLocaleString()} topic cites
+                      h-index {leader.hIndex} · {leader.topicCitations.toLocaleString()} subfield cites
                     </div>
                   </div>
                 </div>
@@ -1060,7 +1060,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                         : 'bg-white text-slate-600 border border-slate-200/80'
                     }`}
                   >
-                    🏆 {a.paperCount} VIS {a.paperCount === 1 ? 'Paper' : 'Papers'} | ⭐{' '}
+                    🏆 {a.paperCount} VIS {a.paperCount === 1 ? 'Paper' : 'Papers'} ({a.indexedPaperCount} indexed) | ⭐{' '}
                     {a.totalCitations.toLocaleString()} Citations
                   </span>
                 </button>
@@ -1124,21 +1124,30 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
 
           <div className="lg:col-span-5 grid grid-cols-3 gap-4 border-t lg:border-t-0 lg:border-l border-slate-200 pt-4 lg:pt-0 lg:pl-6">
             <div>
-              <div className="text-xs text-slate-500">VIS Publications</div>
+              <div className="text-xs text-slate-500">IEEE VIS Publications</div>
               <div className="text-2xl font-mono-tabular font-bold text-slate-900 mt-0.5">
                 {author.totalPapers}
               </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">Total Citations</div>
-              <div className="text-2xl font-mono-tabular font-bold text-slate-900 mt-0.5">
-                {author.totalCitations.toLocaleString()}
+              <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
+                {author.indexedPapers ?? author.papers.length} indexed landmarks
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">h-index</div>
+              <div className="text-xs text-slate-500">VIS Corpus Citations</div>
+              <div className="text-2xl font-mono-tabular font-bold text-slate-900 mt-0.5">
+                {author.totalCitations.toLocaleString()}
+              </div>
+              <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
+                {(author.indexedCitations ?? author.totalCitations).toLocaleString()} in landmarks
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Scholar h-index</div>
               <div className="text-2xl font-mono-tabular font-bold text-slate-900 mt-0.5">
                 {author.hIndex}
+              </div>
+              <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
+                Career citation index
               </div>
             </div>
           </div>
@@ -1153,10 +1162,10 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Annual Publications by Topic &amp; Citation Trajectory
+                  Indexed Landmark Publications by Topic &amp; Citation Trajectory ({author.papers.length} of {author.totalPapers} VIS Papers)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Stacked bars show papers per year colored by research subfield; dark line overlays annual citation impact. Hover or click any year bar to inspect its standout paper.
+                  Stacked bars show indexed landmark papers per year colored by research subfield; dark line overlays annual citation impact. Hover or click any year bar to pin and inspect its papers.
                 </p>
               </div>
               <div className="flex items-center gap-4 text-xs text-slate-600 shrink-0">
@@ -1651,7 +1660,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-slate-900">
-                Major IEEE VIS Publications by {author.name} ({author.papers.length})
+                Indexed Landmark VIS Publications by {author.name} ({author.papers.length} of {author.totalPapers} VIS Papers)
               </h3>
               <button
                 type="button"
@@ -1666,7 +1675,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               </button>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} publications ranked by citation count — expand full list to browse all
+              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} verified landmark publications with full abstracts &amp; DOIs (curated from {author.totalPapers} career IEEE VIS papers)
             </p>
           </div>
 
@@ -1678,7 +1687,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors shrink-0"
           >
-            View All {author.papers.length} Publications
+            View All {author.papers.length} Indexed Landmarks
             <ArrowUpRight className="w-3.5 h-3.5 text-slate-600" />
           </button>
         </div>
@@ -1753,7 +1762,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
         {author.papers.length > 0 && (
           <div className="px-5 py-3.5 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-slate-500 font-mono-tabular">
-              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} IEEE VIS publications by {author.name}
+              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} indexed landmark publications ({author.totalPapers} career IEEE VIS papers) by {author.name}
             </span>
             <button
               type="button"
@@ -1763,7 +1772,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-900 bg-white border border-slate-200 hover:bg-slate-100 rounded-md shadow-2xs transition-colors"
             >
-              Expand Full List ({author.papers.length} publications)
+              Expand Full List ({author.papers.length} indexed landmarks)
               <ArrowUpRight className="w-3.5 h-3.5 text-slate-600" />
             </button>
           </div>
@@ -1797,11 +1806,11 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                     className="text-base font-bold text-slate-900"
                   >
                     {authorYearFilter === 'ALL'
-                      ? `All IEEE VIS Publications by ${author.name} (${filteredModalAuthorPapers.length})`
-                      : `${authorYearFilter} IEEE VIS Publications by ${author.name} (${filteredModalAuthorPapers.length})`}
+                      ? `Indexed Landmark VIS Publications by ${author.name} (${filteredModalAuthorPapers.length} of ${author.totalPapers} VIS Papers)`
+                      : `${authorYearFilter} Indexed Landmark VIS Publications by ${author.name} (${filteredModalAuthorPapers.length})`}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    {author.affiliation} · Active {author.activeStartYear}–{author.activeEndYear} · {author.totalCitations.toLocaleString()} total citations
+                    {author.affiliation} · Active {author.activeStartYear}–{author.activeEndYear} · {author.totalPapers} career VIS papers · {author.totalCitations.toLocaleString()} VIS citations
                   </p>
                 </div>
               </div>

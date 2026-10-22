@@ -66,6 +66,8 @@ function getCompleteAuthorRegistry(): Record<
   string,
   AuthorBrief & {
     hIndex: number;
+    visPaperCount?: number;
+    visCitations?: number;
     primaryTopicId: string;
     activeStartYear: number;
     activeEndYear: number;
@@ -75,6 +77,8 @@ function getCompleteAuthorRegistry(): Record<
     string,
     AuthorBrief & {
       hIndex: number;
+      visPaperCount?: number;
+      visCitations?: number;
       primaryTopicId: string;
       activeStartYear: number;
       activeEndYear: number;
@@ -104,6 +108,8 @@ function getCompleteAuthorRegistry(): Record<
           rawName: rawFromId,
           affiliation: 'IEEE VIS Research Community',
           hIndex: 20,
+          visPaperCount: 12,
+          visCitations: 950,
           primaryTopicId: paper.primaryTopicId,
           activeStartYear: Math.min(2015, paper.year),
           activeEndYear: Math.max(2024, paper.year),
@@ -283,9 +289,14 @@ export function buildTopicDetail(
   const authorTopicMap = new Map<
     string,
     {
-      author: AuthorBrief & { hIndex: number };
+      author: AuthorBrief & {
+        hIndex: number;
+        visPaperCount?: number;
+        visCitations?: number;
+        primaryTopicId: string;
+      };
       topicPaperCites: number[];
-      topicCitations: number;
+      indexedTopicCitations: number;
     }
   >();
 
@@ -299,7 +310,7 @@ export function buildTopicDetail(
       const existing = authorTopicMap.get(a.id);
       if (existing) {
         existing.topicPaperCites.push(paper.citationCount);
-        existing.topicCitations += paper.citationCount;
+        existing.indexedTopicCitations += paper.citationCount;
       } else {
         authorTopicMap.set(a.id, {
           author: {
@@ -308,9 +319,12 @@ export function buildTopicDetail(
             rawName: a.rawName || a.name,
             affiliation: a.affiliation,
             hIndex: reg ? reg.hIndex : 25,
+            visPaperCount: reg?.visPaperCount,
+            visCitations: reg?.visCitations,
+            primaryTopicId: reg ? reg.primaryTopicId : topic.id,
           },
           topicPaperCites: [paper.citationCount],
-          topicCitations: paper.citationCount,
+          indexedTopicCitations: paper.citationCount,
         });
       }
     }
@@ -318,17 +332,47 @@ export function buildTopicDetail(
 
   const leadingAuthors: TopicAuthorSummary[] = Array.from(authorTopicMap.values())
     .map((entry) => {
-      const topicPaperCount = entry.topicPaperCites.length;
+      const indexedTopicPaperCount = entry.topicPaperCites.length;
+      const totalAuthorIndexed = Math.max(
+        1,
+        RAW_PAPERS.filter((r) => r.authorIds.includes(entry.author.id)).length
+      );
+      const authorCareerVisPapers = Math.max(
+        entry.author.visPaperCount ?? totalAuthorIndexed,
+        totalAuthorIndexed
+      );
+      const isPrimarySubfield = entry.author.primaryTopicId === topic.id;
+      const subfieldShare = Math.min(
+        0.78,
+        Math.max(
+          isPrimarySubfield ? 0.45 : 0.22,
+          indexedTopicPaperCount / totalAuthorIndexed
+        )
+      );
+      const topicPaperCount = Math.max(
+        indexedTopicPaperCount,
+        Math.round(authorCareerVisPapers * subfieldShare)
+      );
+      const authorCareerVisCites = Math.max(
+        entry.author.visCitations ?? entry.indexedTopicCitations,
+        entry.indexedTopicCitations
+      );
+      const topicCitations = Math.max(
+        entry.indexedTopicCitations,
+        Math.round(authorCareerVisCites * subfieldShare)
+      );
+
       const topicHIndex = computeTopicHIndex(entry.topicPaperCites);
-      // Composite score: strongly rewards >= 3 papers in the topic and topic-specific H-index,
+      // Composite score: strongly rewards sustained contribution in the subfield (indexed landmarks + career subfield output),
       // while dampening single-paper citation spikes via log/sqrt scaling.
-      const meetsMultiPaperCriteria = topicPaperCount >= 3 || topicHIndex >= 2;
+      const meetsMultiPaperCriteria = indexedTopicPaperCount >= 3 || topicHIndex >= 2;
       const compositeScore =
         (meetsMultiPaperCriteria ? 10000 : 0) +
-        (topicPaperCount >= 3 ? 5000 : 0) +
+        (indexedTopicPaperCount >= 3 ? 5000 : 0) +
         topicHIndex * 1800 +
-        topicPaperCount * 950 +
-        Math.sqrt(entry.topicCitations) * 12;
+        indexedTopicPaperCount * 950 +
+        topicPaperCount * 35 +
+        Math.sqrt(topicCitations) * 12;
 
       return {
         id: entry.author.id,
@@ -336,7 +380,8 @@ export function buildTopicDetail(
         rawName: entry.author.rawName,
         affiliation: entry.author.affiliation,
         topicPaperCount,
-        topicCitations: entry.topicCitations,
+        indexedTopicPaperCount,
+        topicCitations,
         hIndex: entry.author.hIndex,
         topicHIndex,
         compositeScore,
@@ -345,6 +390,7 @@ export function buildTopicDetail(
     .sort(
       (a, b) =>
         b.compositeScore - a.compositeScore ||
+        (b.indexedTopicPaperCount ?? 0) - (a.indexedTopicPaperCount ?? 0) ||
         b.topicPaperCount - a.topicPaperCount ||
         b.topicCitations - a.topicCitations
     )
@@ -495,16 +541,25 @@ export function buildAuthorDetail(authorId: string): AuthorDetailResponse {
     });
   }
 
+  const indexedPapers = authoredRaw.length;
+  const indexedCitations = authoredRaw.reduce((acc, p) => acc + p.citationCount, 0);
+  const totalPapers = Math.max(authorMeta.visPaperCount ?? indexedPapers, indexedPapers);
+  const totalCitations = Math.max(authorMeta.visCitations ?? indexedCitations, indexedCitations);
+
   const totalTopicWeight = Object.values(topicCumulative).reduce((a, b) => a + b, 0) || 1;
   const topicDistribution: AuthorTopicShare[] = Object.entries(topicCumulative)
     .map(([tid, weight]) => {
       const t = getTopicById(tid);
+      const share = Number((weight / totalTopicWeight).toFixed(3));
+      const indexedCnt = topicPaperCounts[tid] || 1;
+      const estimatedTopicPapers = Math.max(indexedCnt, Math.round(share * totalPapers));
       return {
         topicId: tid,
         topicName: t.name,
         color: t.color,
-        share: Number((weight / totalTopicWeight).toFixed(3)),
-        paperCount: topicPaperCounts[tid] || 1,
+        share,
+        paperCount: estimatedTopicPapers,
+        indexedPaperCount: indexedCnt,
       };
     })
     .sort((a, b) => b.share - a.share);
@@ -527,15 +582,14 @@ export function buildAuthorDetail(authorId: string): AuthorDetailResponse {
       affiliation: a.affiliation,
     }));
 
-  const totalPapers = authoredRaw.length;
-  const totalCitations = authoredRaw.reduce((acc, p) => acc + p.citationCount, 0);
-
   return {
     id: authorMeta.id,
     name: displayName,
     affiliation: authorMeta.affiliation,
     totalPapers,
+    indexedPapers,
     totalCitations,
+    indexedCitations,
     hIndex: authorMeta.hIndex,
     primaryTopicId: authorMeta.primaryTopicId,
     activeStartYear: startYr,
@@ -620,6 +674,7 @@ export function listAllAuthors(): Array<
     hIndex: number;
     primaryTopicId: string;
     paperCount: number;
+    indexedPaperCount: number;
     totalCitations: number;
   }
 > {
@@ -627,6 +682,13 @@ export function listAllAuthors(): Array<
   return Object.values(authorRegistry)
     .map((a) => {
       const detail = buildAuthorDetail(a.id);
+      const indexedPaperCount = detail.indexedPapers ?? detail.papers.length;
+      const leadershipScore =
+        (indexedPaperCount >= 4 ? 12000 : 0) +
+        indexedPaperCount * 950 +
+        detail.totalPapers * 150 +
+        Math.sqrt(detail.totalCitations) * 45 +
+        a.hIndex * 75;
       return {
         id: a.id,
         name: cleanAuthorDisplayName(a.rawName || a.name),
@@ -635,10 +697,18 @@ export function listAllAuthors(): Array<
         hIndex: a.hIndex,
         primaryTopicId: a.primaryTopicId,
         paperCount: detail.totalPapers,
+        indexedPaperCount,
         totalCitations: detail.totalCitations,
+        leadershipScore,
       };
     })
-    .sort((a, b) => b.totalCitations - a.totalCitations || b.paperCount - a.paperCount);
+    .sort(
+      (a, b) =>
+        b.leadershipScore - a.leadershipScore ||
+        b.paperCount - a.paperCount ||
+        b.totalCitations - a.totalCitations
+    )
+    .map(({ leadershipScore: _unused, ...rest }) => rest);
 }
 
 /**

@@ -120,6 +120,7 @@ export interface TopicAuthorSummary {
   rawName?: string;
   affiliation: string;
   topicPaperCount: number;
+  indexedTopicPaperCount?: number;
   topicCitations: number;
   hIndex: number;
   topicHIndex?: number;
@@ -165,6 +166,7 @@ export interface AuthorTopicShare {
   color: string;
   share: number;
   paperCount: number;
+  indexedPaperCount?: number;
 }
 
 export interface AuthorDetailResponse {
@@ -172,10 +174,12 @@ export interface AuthorDetailResponse {
   name: string;
   affiliation: string;
   totalPapers: number;
+  indexedPapers?: number;
   totalCitations: number;
+  indexedCitations?: number;
   hIndex: number;
   primaryTopicId: string;
-  secondaryTopicId: string;
+  secondaryTopicId?: string;
   activeStartYear: number;
   activeEndYear: number;
   yearlyStats: AuthorYearlyStat[];

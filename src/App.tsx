@@ -277,9 +277,14 @@ export default function App() {
                         onMouseDown={() => handleSelectAuthor(a.id)}
                         className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 rounded flex items-center justify-between gap-2"
                       >
-                        <span className="font-medium text-slate-900">{a.name}</span>
-                        <span className="text-slate-400 truncate max-w-[180px]">
-                          {a.affiliation}
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-900 truncate">{a.name}</div>
+                          <div className="text-[11px] text-slate-400 truncate">
+                            {a.affiliation}
+                          </div>
+                        </div>
+                        <span className="font-mono-tabular text-[11px] text-slate-500 shrink-0">
+                          {a.paperCount} VIS papers · h-{a.hIndex}
                         </span>
                       </button>
                     ))}

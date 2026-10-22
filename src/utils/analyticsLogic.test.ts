@@ -265,3 +265,58 @@ test('EnsembleLens paper profile lists all 5 real co-authors in exact publicatio
   );
 });
 
+test('Author Analytics and Topic Leading Researchers report realistic IEEE VIS corpus counts alongside indexed landmark counts', () => {
+  const heer = buildAuthorDetail('jeffrey-heer');
+  assert.ok(
+    heer.totalPapers >= 80,
+    `Expected Jeffrey Heer to have >= 80 IEEE VIS publications, got ${heer.totalPapers}`
+  );
+  assert.equal(heer.indexedPapers, 16);
+  assert.equal(heer.papers.length, 16);
+  assert.ok(heer.totalCitations >= (heer.indexedCitations ?? 0));
+
+  const qu = buildAuthorDetail('huamin-qu-0001');
+  assert.ok(qu.totalPapers >= 130);
+  assert.equal(qu.indexedPapers, qu.papers.length);
+
+  const pfister = buildAuthorDetail('hanspeter-pfister');
+  assert.ok(pfister.totalPapers >= 120);
+
+  // All authors in listAllAuthors must have >= 1 indexed landmark paper, and Top 15 must have >= 4 indexed landmarks and >= 18 VIS papers
+  const allAuthors = listAllAuthors();
+  for (const author of allAuthors) {
+    assert.ok(
+      author.indexedPaperCount >= 1,
+      `Author ${author.name} must have at least 1 indexed landmark paper, got ${author.indexedPaperCount}`
+    );
+  }
+  const topContributors = allAuthors.slice(0, 15);
+  for (const contributor of topContributors) {
+    assert.ok(
+      contributor.indexedPaperCount >= 4,
+      `Top 15 VIS contributor ${contributor.name} should have >= 4 indexed landmark papers, got ${contributor.indexedPaperCount}`
+    );
+    assert.ok(
+      contributor.paperCount >= contributor.indexedPaperCount,
+      `Author ${contributor.name} total VIS paperCount (${contributor.paperCount}) must be >= indexedPaperCount (${contributor.indexedPaperCount})`
+    );
+  }
+
+  // Across all 8 subfields, leading researchers must have topicPaperCount >= indexedTopicPaperCount and realistic hIndex
+  const field = buildFieldOverview();
+  for (const t of field.topics) {
+    const td = buildTopicDetail(t.id);
+    for (const leader of td.leadingAuthors) {
+      assert.ok(
+        leader.topicPaperCount >= (leader.indexedTopicPaperCount ?? 1),
+        `In ${t.id}, ${leader.name} topicPaperCount (${leader.topicPaperCount}) must be >= indexedTopicPaperCount (${leader.indexedTopicPaperCount})`
+      );
+      assert.ok(
+        leader.hIndex >= (leader.topicHIndex ?? 1),
+        `In ${t.id}, ${leader.name} career hIndex (${leader.hIndex}) must be >= topicHIndex (${leader.topicHIndex})`
+      );
+    }
+  }
+});
+
+
