@@ -113,11 +113,12 @@ def get_field_overview() -> FieldOverviewResponse:
 def get_topic_detail(
     topic_id: str,
     sort_by: str = Query("citations", pattern="^(citations|relevance|year)$"),
+    min_topic_fit: float = Query(0.08, ge=0.0, le=1.0),
 ) -> TopicDetailResponse:
     """
     Task 2: Topic-Level View endpoint.
-    Returns topic metadata, ranked papers (by citation count or LDA relevance score),
-    and the intra-topic D3 force-directed citation network.
+    Returns topic metadata, top seminal papers for the topic, leading researchers in the topic,
+    ranked papers (filtered by min_topic_fit), and the intra-topic D3 citation network.
     """
     with get_db_connection() as conn:
         t_row = conn.execute("SELECT * FROM topics WHERE id = ?", (topic_id,)).fetchone()
@@ -130,6 +131,7 @@ def get_topic_detail(
             "shortName": t_row["short_name"],
             "color": t_row["color"],
             "description": t_row["description"],
+            "keywordGroupingSummary": t_row["description"],
             "topKeywords": json.loads(t_row["top_keywords_json"]),
             "paperCount": int(t_row["paper_count"]),
             "totalCitations": int(t_row["total_citations"]),
@@ -148,10 +150,10 @@ def get_topic_detail(
             SELECT p.*, pt.relevance_score
             FROM paper_topics pt
             JOIN papers p ON p.id = pt.paper_id
-            WHERE pt.topic_id = ? AND pt.relevance_score >= 0.15
+            WHERE pt.topic_id = ? AND pt.relevance_score >= ?
             ORDER BY {order_clause}
             """,
-            (topic_id,),
+            (topic_id, min_topic_fit),
         ).fetchall()
 
         papers = [
@@ -159,6 +161,98 @@ def get_topic_detail(
             for row in paper_rows
         ]
         paper_id_set = {p["id"] for p in papers}
+
+        # Top 4 Seminal Papers specific to this topic (highest composite citation impact & topic fit)
+        seminal_papers = sorted(
+            [p for p in papers if p["relevanceScore"] >= 0.35] or papers,
+            key=lambda p: p["citationCount"] * (0.6 + 0.4 * p["relevanceScore"]),
+            reverse=True,
+        )[:4]
+
+        # Leading Researchers in this Topic (composite score: >=3 papers or topic H-index + damped citations)
+        author_topic_stats = defaultdict(lambda: {"cites_list": [], "citations": 0, "meta": None})
+        for p in papers:
+            if p["relevanceScore"] < 0.25:
+                continue
+            for a in p["authors"]:
+                aid = a["id"]
+                author_topic_stats[aid]["cites_list"].append(int(p["citationCount"]))
+                author_topic_stats[aid]["citations"] += int(p["citationCount"])
+                author_topic_stats[aid]["meta"] = a
+
+        scored_authors = []
+        for aid, st in author_topic_stats.items():
+            cites_sorted = sorted(st["cites_list"], reverse=True)
+            topic_h = 0
+            for idx, c_val in enumerate(cites_sorted):
+                if c_val >= idx + 1:
+                    topic_h = idx + 1
+                else:
+                    break
+            p_cnt = len(cites_sorted)
+            meets_threshold = p_cnt >= 3 or topic_h >= 2
+            comp_score = (
+                (10000 if meets_threshold else 0)
+                + (5000 if p_cnt >= 3 else 0)
+                + topic_h * 1800
+                + p_cnt * 950
+                + (st["citations"] ** 0.5) * 12
+            )
+            scored_authors.append((comp_score, p_cnt, st["citations"], topic_h, aid, st))
+
+        scored_authors.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+
+        leading_authors = []
+        for _, p_cnt, tot_cites, topic_h, aid, st in scored_authors[:6]:
+            a_row = conn.execute("SELECT h_index, raw_name FROM authors WHERE id = ?", (aid,)).fetchone()
+            leading_authors.append(
+                {
+                    "id": aid,
+                    "name": st["meta"]["name"],
+                    "rawName": a_row["raw_name"] if a_row and "raw_name" in a_row.keys() else st["meta"]["name"],
+                    "affiliation": st["meta"]["affiliation"],
+                    "topicPaperCount": p_cnt,
+                    "topicCitations": tot_cites,
+                    "hIndex": int(a_row["h_index"]) if a_row else 25,
+                    "topicHIndex": topic_h,
+                }
+            )
+
+        # =====================================================================
+        # EXPLICIT GRAPH FILTERING METHOD (NO SQL LIMIT CLAUSE):
+        # Active Method: "Strict >=40% Topic Fit Cutoff + 1-Hop Cross-Topic Citation Bridges"
+        # 1. Core Subfield Nodes: Select ALL papers where relevanceScore >= 0.40
+        #    for this topic with zero SQL LIMIT cap.
+        # 2. Cross-Topic Bridge Nodes: Pull in external papers from other topics
+        #    that directly cite or are cited by the core >=40% subfield papers
+        #    (`isCrossTopic = True`).
+        # 3. Standalone Papers: Nodes with 0 citation edges in the subfield view
+        #    are included in the response so the frontend can toggle them via
+        #    "Hide Standalone Papers".
+        # =====================================================================
+        core_papers = [p for p in papers if p["relevanceScore"] >= 0.40] or papers
+        core_id_set = {p["id"] for p in core_papers}
+
+        cross_nodes_map = {}
+        if core_id_set:
+            placeholders = ",".join("?" for _ in core_id_set)
+            core_list = list(core_id_set)
+            cross_rows = conn.execute(
+                f"""
+                SELECT DISTINCT p.*
+                FROM paper_citations pc
+                JOIN papers p ON (p.id = pc.target_paper_id OR p.id = pc.source_paper_id)
+                WHERE (pc.source_paper_id IN ({placeholders}) OR pc.target_paper_id IN ({placeholders}))
+                  AND p.id NOT IN ({placeholders})
+                """,
+                core_list + core_list + core_list,
+            ).fetchall()
+            for r in cross_rows:
+                summary = build_paper_summary(conn, r)
+                cross_nodes_map[summary["id"]] = summary
+
+        all_network_papers = core_papers + list(cross_nodes_map.values())
+        network_id_set = {p["id"] for p in all_network_papers}
 
         nodes = [
             {
@@ -170,14 +264,16 @@ def get_topic_detail(
                 "relevanceScore": p["relevanceScore"],
                 "primaryTopicId": p["primaryTopicId"],
                 "authors": [a["name"] for a in p["authors"]],
+                "isCrossTopic": (p["id"] not in core_id_set) or (p["primaryTopicId"] != topic_id),
             }
-            for p in papers
+            for p in all_network_papers
         ]
 
         links = []
-        if paper_id_set:
-            placeholders = ",".join("?" for _ in paper_id_set)
-            id_list = list(paper_id_set)
+        degree_counts = defaultdict(int)
+        if network_id_set:
+            placeholders = ",".join("?" for _ in network_id_set)
+            id_list = list(network_id_set)
             edge_rows = conn.execute(
                 f"""
                 SELECT source_paper_id, target_paper_id
@@ -187,10 +283,16 @@ def get_topic_detail(
                 """,
                 id_list + id_list,
             ).fetchall()
-            links = [
-                {"source": r["source_paper_id"], "target": r["target_paper_id"]}
-                for r in edge_rows
-            ]
+            for r in edge_rows:
+                src = r["source_paper_id"]
+                tgt = r["target_paper_id"]
+                links.append({"source": src, "target": tgt})
+                degree_counts[src] += 1
+                degree_counts[tgt] += 1
+
+        core_cnt = sum(1 for n in nodes if not n["isCrossTopic"])
+        cross_cnt = sum(1 for n in nodes if n["isCrossTopic"])
+        standalone_cnt = sum(1 for n in nodes if degree_counts[n["id"]] == 0)
 
         trend_rows = conn.execute(
             """
@@ -212,10 +314,62 @@ def get_topic_detail(
 
         return TopicDetailResponse(
             topic=topic_summary,
+            seminalPapers=seminal_papers,
+            leadingAuthors=leading_authors,
             papers=papers,
-            citationNetwork={"nodes": nodes, "links": links},
+            citationNetwork={
+                "nodes": nodes,
+                "links": links,
+                "filteringCriteria": "Strict ≥40% Topic Fit Cutoff + 1-Hop Cross-Topic Citation Bridges (No Node Cap)",
+                "coreSubfieldNodeCount": core_cnt,
+                "crossTopicNodeCount": cross_cnt,
+                "standaloneNodeCount": standalone_cnt,
+            },
             yearlyTrend=yearly_trend,
         )
+
+
+@app.get("/api/search")
+def search_corpus(q: str = Query("", min_length=1)) -> dict:
+    """
+    Case-insensitive, substring, and token-order-independent search across
+    all indexed authors, papers, and topics in the Vispubdata database.
+    """
+    tokens = [t.strip().lower() for t in q.split() if t.strip()]
+    if not tokens:
+        return {"authors": [], "papers": []}
+
+    with get_db_connection() as conn:
+        author_rows = conn.execute("SELECT * FROM authors ORDER BY total_citations DESC").fetchall()
+        matched_authors = []
+        for r in author_rows:
+            raw_name = r["raw_name"] if "raw_name" in r.keys() else r["name"]
+            haystack = f"{r['name']} {raw_name} {r['affiliation']}".lower()
+            if all(tok in haystack for tok in tokens):
+                matched_authors.append(
+                    {
+                        "id": r["id"],
+                        "name": r["name"],
+                        "rawName": raw_name,
+                        "affiliation": r["affiliation"],
+                        "totalPapers": int(r["total_papers"]),
+                        "totalCitations": int(r["total_citations"]),
+                    }
+                )
+
+        paper_rows = conn.execute("SELECT * FROM papers ORDER BY citation_count DESC").fetchall()
+        matched_papers = []
+        for r in paper_rows:
+            summary = build_paper_summary(conn, r)
+            author_names = " ".join(
+                f"{a['name']} {a.get('rawName', '')}" for a in summary["authors"]
+            )
+            kw_str = " ".join(summary["keywords"])
+            haystack = f"{summary['title']} {summary['abstract']} {kw_str} {author_names} {summary['year']} {summary['venue']}".lower()
+            if all(tok in haystack for tok in tokens):
+                matched_papers.append(summary)
+
+        return {"authors": matched_authors[:20], "papers": matched_papers[:25]}
 
 
 @app.get("/api/authors/{author_id}", response_model=AuthorDetailResponse)
@@ -230,21 +384,6 @@ def get_author_detail(author_id: str) -> AuthorDetailResponse:
         if not a_row:
             raise HTTPException(status_code=404, detail=f"Author '{author_id}' not found")
 
-        stat_rows = conn.execute(
-            "SELECT * FROM author_yearly_stats WHERE author_id = ? ORDER BY year ASC",
-            (author_id,),
-        ).fetchall()
-
-        yearly_stats = [
-            {
-                "year": int(r["year"]),
-                "paperCount": int(r["paper_count"]),
-                "citationSum": int(r["citation_sum"]),
-                "topicBreakdown": json.loads(r["topic_breakdown_json"]),
-            }
-            for r in stat_rows
-        ]
-
         paper_rows = conn.execute(
             """
             SELECT p.*
@@ -256,6 +395,56 @@ def get_author_detail(author_id: str) -> AuthorDetailResponse:
             (author_id,),
         ).fetchall()
         papers = [build_paper_summary(conn, r) for r in paper_rows]
+
+        start_yr = int(a_row["active_start_year"])
+        end_yr = int(a_row["active_end_year"])
+        if papers:
+            start_yr = min(start_yr, min(p["year"] for p in papers))
+            end_yr = max(end_yr, max(p["year"] for p in papers))
+
+        papers_by_year = defaultdict(list)
+        for p in papers:
+            papers_by_year[int(p["year"])].append(p)
+
+        yearly_stats = []
+        for yr in range(start_yr, end_yr + 1):
+            yr_papers = sorted(
+                papers_by_year.get(yr, []),
+                key=lambda x: x["citationCount"],
+                reverse=True,
+            )
+            p_cnt = len(yr_papers)
+            c_sum = sum(x["citationCount"] for x in yr_papers)
+            tb = defaultdict(float)
+            for yp in yr_papers:
+                tb_rows = conn.execute(
+                    "SELECT topic_id, relevance_score FROM paper_topics WHERE paper_id = ?",
+                    (yp["id"],),
+                ).fetchall()
+                for tr in tb_rows:
+                    tb[tr["topic_id"]] = round(tb[tr["topic_id"]] + float(tr["relevance_score"]), 2)
+
+            standout = (
+                {
+                    "id": yr_papers[0]["id"],
+                    "title": yr_papers[0]["title"],
+                    "year": yr_papers[0]["year"],
+                    "venue": yr_papers[0]["venue"],
+                    "citationCount": yr_papers[0]["citationCount"],
+                }
+                if yr_papers
+                else None
+            )
+
+            yearly_stats.append(
+                {
+                    "year": yr,
+                    "paperCount": p_cnt,
+                    "citationSum": c_sum,
+                    "topicBreakdown": dict(tb),
+                    "standoutPaper": standout,
+                }
+            )
 
         # Compute aggregate topic distribution across the author's career
         topic_meta = {
@@ -297,6 +486,12 @@ def get_author_detail(author_id: str) -> AuthorDetailResponse:
         ).fetchall()
         co_authors = [{"id": r["id"], "name": r["name"], "affiliation": r["affiliation"]} for r in co_rows]
 
+        primary_tid = a_row["primary_topic_id"]
+        secondary_tid = next(
+            (td["topicId"] for td in topic_distribution if td["topicId"] != primary_tid),
+            "topic-4" if primary_tid == "topic-5" else "topic-5",
+        )
+
         return AuthorDetailResponse(
             id=a_row["id"],
             name=a_row["name"],
@@ -304,7 +499,8 @@ def get_author_detail(author_id: str) -> AuthorDetailResponse:
             totalPapers=int(a_row["total_papers"]),
             totalCitations=int(a_row["total_citations"]),
             hIndex=int(a_row["h_index"]),
-            primaryTopicId=a_row["primary_topic_id"],
+            primaryTopicId=primary_tid,
+            secondaryTopicId=secondary_tid,
             activeStartYear=int(a_row["active_start_year"]),
             activeEndYear=int(a_row["active_end_year"]),
             yearlyStats=yearly_stats,

@@ -18,6 +18,7 @@ class TopicSummary(BaseModel):
     shortName: str
     color: str
     description: str
+    keywordGroupingSummary: str
     topKeywords: List[KeywordWeight]
     paperCount: int
     totalCitations: int
@@ -55,6 +56,7 @@ class FieldOverviewResponse(BaseModel):
 class AuthorBrief(BaseModel):
     id: str
     name: str
+    rawName: Optional[str] = None
     affiliation: str
 
 
@@ -71,6 +73,7 @@ class PaperSummary(BaseModel):
     year: int
     venue: str
     doi: str
+    abstract: str
     citationCount: int
     relevanceScore: float
     primaryTopicId: str
@@ -87,6 +90,7 @@ class CitationNode(BaseModel):
     relevanceScore: float
     primaryTopicId: str
     authors: List[str]
+    isCrossTopic: Optional[bool] = False
 
 
 class CitationLink(BaseModel):
@@ -94,13 +98,41 @@ class CitationLink(BaseModel):
     target: str = Field(..., description="Cited paper ID")
 
 
+class TopicAuthorSummary(BaseModel):
+    id: str
+    name: str
+    rawName: Optional[str] = None
+    affiliation: str
+    topicPaperCount: int
+    topicCitations: int
+    hIndex: int
+    topicHIndex: Optional[int] = None
+
+
+class CitationNetworkPayload(BaseModel):
+    nodes: List[CitationNode]
+    links: List[CitationLink]
+    filteringCriteria: Optional[str] = None
+    coreSubfieldNodeCount: Optional[int] = None
+    crossTopicNodeCount: Optional[int] = None
+    standaloneNodeCount: Optional[int] = None
+
+
 class TopicDetailResponse(BaseModel):
     topic: TopicSummary
+    seminalPapers: List[PaperSummary]
+    leadingAuthors: List[TopicAuthorSummary]
     papers: List[PaperSummary]
-    citationNetwork: Dict[str, List] = Field(
-        ..., description="Contains 'nodes' (List[CitationNode]) and 'links' (List[CitationLink])"
-    )
+    citationNetwork: CitationNetworkPayload
     yearlyTrend: List[Dict[str, float | int]]
+
+
+class StandoutPaperBrief(BaseModel):
+    id: str
+    title: str
+    year: Optional[int] = None
+    venue: str
+    citationCount: int
 
 
 class AuthorYearlyStat(BaseModel):
@@ -110,6 +142,7 @@ class AuthorYearlyStat(BaseModel):
     topicBreakdown: Dict[str, float] = Field(
         ..., description="Mapping of topic_id to author's fractional topic output in that year"
     )
+    standoutPaper: Optional[StandoutPaperBrief] = None
 
 
 class AuthorTopicShare(BaseModel):
@@ -128,6 +161,7 @@ class AuthorDetailResponse(BaseModel):
     totalCitations: int
     hIndex: int
     primaryTopicId: str
+    secondaryTopicId: str
     activeStartYear: int
     activeEndYear: int
     yearlyStats: List[AuthorYearlyStat]

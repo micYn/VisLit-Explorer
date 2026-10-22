@@ -3,15 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ViewMode } from './types';
 import {
   buildAuthorDetail,
   buildFieldOverview,
   buildPaperDetail,
   buildTopicDetail,
+  filterAuthorsByQuery,
   listAllAuthors,
   listAllPapers,
+  matchesFlexibleQuery,
+  sortAndFilterPapers,
 } from './utils/analyticsLogic';
 import { Streamgraph } from './components/Streamgraph';
 import {
@@ -19,7 +22,6 @@ import {
   PaperDetailView,
   TopicDetailView,
 } from './components/Views';
-import { PipelineSpecsModal } from './components/PipelineSpecsModal';
 import { Search } from 'lucide-react';
 
 export default function App() {
@@ -27,9 +29,13 @@ export default function App() {
   const [selectedTopicId, setSelectedTopicId] = useState<string>('topic-5');
   const [selectedAuthorId, setSelectedAuthorId] = useState<string>('jeffrey-heer');
   const [selectedPaperId, setSelectedPaperId] = useState<string>('vis-2011-d3');
-  const [isSpecsModalOpen, setIsSpecsModalOpen] = useState<boolean>(false);
   const [globalQuery, setGlobalQuery] = useState<string>('');
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
+
+  // Force window scroll to the very top whenever transitioning between tabs or navigating to a new entity view
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [viewMode, selectedTopicId, selectedAuthorId, selectedPaperId]);
 
   // Pre-computed / API-synchronized models
   const fieldOverview = useMemo(() => buildFieldOverview(), []);
@@ -49,39 +55,33 @@ export default function App() {
   const allAuthors = useMemo(() => listAllAuthors(), []);
   const allPapers = useMemo(() => listAllPapers('citations'), []);
 
-  // Global Omni-Search results across Topics, Authors, and Papers
+  // Global Omni-Search results across Topics, Authors, and Papers (case-insensitive & token-reordered)
   const searchResults = useMemo(() => {
-    const q = globalQuery.trim().toLowerCase();
+    const q = globalQuery.trim();
     if (!q) return null;
 
-    const matchedTopics = fieldOverview.topics.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.topKeywords.some((k) => k.term.toLowerCase().includes(q))
-    );
-    const matchedAuthors = allAuthors.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.affiliation.toLowerCase().includes(q)
-    );
-    const matchedPapers = allPapers
-      .filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.keywords.some((k) => k.toLowerCase().includes(q)) ||
-          String(p.year).includes(q)
+    const matchedTopics = fieldOverview.topics.filter((t) =>
+      matchesFlexibleQuery(
+        `${t.name} ${t.description} ${t.topKeywords.map((k) => k.term).join(' ')}`,
+        q
       )
-      .slice(0, 5);
+    );
+    const matchedAuthors = filterAuthorsByQuery(allAuthors, q);
+    const matchedPapers = sortAndFilterPapers(allPapers, 'citations', q).slice(
+      0,
+      6
+    );
 
     return { matchedTopics, matchedAuthors, matchedPapers };
   }, [globalQuery, fieldOverview.topics, allAuthors, allPapers]);
 
-  // Navigation Handlers wiring all 4 Tasks
+  // Navigation Handlers wiring all 4 Tasks with immediate scroll-to-top
   const handleSelectTopic = (topicId: string) => {
     setSelectedTopicId(topicId);
     setViewMode('topic');
     setGlobalQuery('');
     setIsSearchFocused(false);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   const handleSelectAuthor = (authorId: string) => {
@@ -89,6 +89,7 @@ export default function App() {
     setViewMode('author');
     setGlobalQuery('');
     setIsSearchFocused(false);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   const handleSelectPaper = (paperId: string) => {
@@ -96,11 +97,12 @@ export default function App() {
     setViewMode('paper');
     setGlobalQuery('');
     setIsSearchFocused(false);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Top Bar Contract: 3 zones separated by gap-8 */}
+      {/* Top Bar: Clean Wordmark + 4 Primary View Tabs (Developer clutter removed) */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-8 px-6 py-3.5">
           {/* Zone 1: Single text element wordmark */}
@@ -119,6 +121,7 @@ export default function App() {
           >
             <button
               type="button"
+              data-testid="nav-field"
               onClick={() => setViewMode('field')}
               className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
                 viewMode === 'field'
@@ -130,6 +133,7 @@ export default function App() {
             </button>
             <button
               type="button"
+              data-testid="nav-topic"
               onClick={() => setViewMode('topic')}
               className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
                 viewMode === 'topic'
@@ -141,6 +145,7 @@ export default function App() {
             </button>
             <button
               type="button"
+              data-testid="nav-author"
               onClick={() => setViewMode('author')}
               className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
                 viewMode === 'author'
@@ -152,6 +157,7 @@ export default function App() {
             </button>
             <button
               type="button"
+              data-testid="nav-paper"
               onClick={() => setViewMode('paper')}
               className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
                 viewMode === 'paper'
@@ -163,15 +169,9 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: 1 primary action */}
-          <div className="flex items-center shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsSpecsModalOpen(true)}
-              className="px-4 py-2 text-xs font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-            >
-              Pipeline &amp; API Specs
-            </button>
+          {/* Zone 3: Corpus Edition Context */}
+          <div className="hidden lg:flex items-center text-xs font-mono-tabular text-slate-500 shrink-0">
+            IEEE VIS 1990–2024
           </div>
         </div>
 
@@ -210,11 +210,11 @@ export default function App() {
             </span>
             <span className="text-slate-300">·</span>
             <span className="font-mono-tabular">
-              {fieldOverview.totalPapers.toLocaleString()} Papers
+              {fieldOverview.totalPapers.toLocaleString()} Total Papers ({allPapers.length} Indexed Landmarks)
             </span>
             <span className="text-slate-300">·</span>
             <span className="font-mono-tabular">
-              {fieldOverview.topics.length} LDA Topics
+              {fieldOverview.topics.length} Core Research Subfields
             </span>
             <span className="text-slate-300">·</span>
             <span className="font-mono-tabular">
@@ -231,7 +231,7 @@ export default function App() {
               onFocus={() => setIsSearchFocused(true)}
               onBlur={() => setTimeout(() => setIsSearchFocused(false), 180)}
               onChange={(e) => setGlobalQuery(e.target.value)}
-              placeholder="Search topics, papers, or VIS authors..."
+              placeholder="Search subfields, papers, or VIS authors..."
               aria-label="Global literature search"
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900 focus:bg-white transition-colors"
             />
@@ -241,7 +241,7 @@ export default function App() {
                 {searchResults.matchedTopics.length > 0 && (
                   <div>
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                      LDA Topics
+                      Research Subfields
                     </div>
                     {searchResults.matchedTopics.map((t) => (
                       <button
@@ -252,13 +252,13 @@ export default function App() {
                       >
                         <span className="font-medium text-slate-900 flex items-center gap-1.5">
                           <span
-                            className="w-2 h-2 rounded-xs"
+                            className="w-2 h-2 rounded-xs shrink-0"
                             style={{ backgroundColor: t.color }}
                           />
                           {t.name}
                         </span>
-                        <span className="font-mono-tabular text-slate-400">
-                          {t.paperCount} papers
+                        <span className="font-mono-tabular text-slate-400 shrink-0">
+                          {t.paperCount.toLocaleString()} papers
                         </span>
                       </button>
                     ))}
@@ -275,10 +275,10 @@ export default function App() {
                         key={a.id}
                         type="button"
                         onMouseDown={() => handleSelectAuthor(a.id)}
-                        className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 rounded flex items-center justify-between"
+                        className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 rounded flex items-center justify-between gap-2"
                       >
                         <span className="font-medium text-slate-900">{a.name}</span>
-                        <span className="text-slate-400 truncate max-w-[160px]">
+                        <span className="text-slate-400 truncate max-w-[180px]">
                           {a.affiliation}
                         </span>
                       </button>
@@ -298,11 +298,12 @@ export default function App() {
                         onMouseDown={() => handleSelectPaper(p.id)}
                         className="w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50 rounded block"
                       >
-                        <div className="font-medium text-slate-900 truncate">
+                        <div className="font-medium text-slate-900 line-clamp-2 leading-snug">
                           {p.title}
                         </div>
-                        <div className="text-[11px] font-mono-tabular text-slate-400">
-                          {p.venue} · {p.year} · {p.citationCount} citations
+                        <div className="text-[11px] font-mono-tabular text-slate-400 mt-0.5">
+                          {p.venue} · {p.year} · {p.citationCount} citations ·{' '}
+                          {p.authors.map((a) => a.name).join(', ')}
                         </div>
                       </button>
                     ))}
@@ -400,20 +401,14 @@ export default function App() {
             <span>·</span>
             <button
               type="button"
-              onClick={() => setIsSpecsModalOpen(true)}
+              onClick={() => setViewMode('paper')}
               className="hover:text-slate-900"
             >
-              Python LDA &amp; FastAPI Source
+              Paper Profiles
             </button>
           </div>
         </div>
       </footer>
-
-      {/* Architecture & Code Inspector Modal */}
-      <PipelineSpecsModal
-        isOpen={isSpecsModalOpen}
-        onClose={() => setIsSpecsModalOpen(false)}
-      />
     </div>
   );
 }

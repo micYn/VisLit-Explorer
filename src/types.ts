@@ -15,9 +15,13 @@ export interface TopicSummary {
   name: string;
   shortName: string;
   color: string;
+  /** 1-sentence plain-English description explaining what research in this subfield investigates */
   description: string;
+  /** 1-line plain-language summary explaining why the top keywords group together */
+  keywordGroupingSummary: string;
   topKeywords: KeywordWeight[];
   paperCount: number;
+  indexedPaperCount?: number;
   totalCitations: number;
   peakYear: number;
   growthRate: number; // 5-year trend percentage change
@@ -25,7 +29,7 @@ export interface TopicSummary {
 
 export interface YearlyTopicPrevalence {
   year: number;
-  /** Mapping from topic_id to normalized prevalence [0, 1] */
+  /** Mapping from topic_id to normalized share [0, 1] */
   values: Record<string, number>;
   /** Mapping from topic_id to discrete paper count in that year */
   counts: Record<string, number>;
@@ -34,9 +38,9 @@ export interface YearlyTopicPrevalence {
 export interface TopicCorrelationEdge {
   sourceTopicId: string;
   targetTopicId: string;
-  /** Pearson correlation coefficient [-1, 1] across document-topic vectors */
+  /** Topic similarity / correlation score [-1, 1] */
   correlation: number;
-  /** Number of papers sharing both topics above relevance threshold (theta >= 0.18) */
+  /** Number of papers bridging both subfields */
   coOccurrenceCount: number;
 }
 
@@ -46,15 +50,18 @@ export interface FieldOverviewResponse {
   correlations: TopicCorrelationEdge[];
   yearRange: [number, number];
   totalPapers: number;
+  indexedPapers?: number;
   totalCitations: number;
   totalAuthors: number;
 }
 
 export interface AuthorBrief {
   id: string;
-  name: string;
+  name: str_alias;
+  rawName?: string;
   affiliation: string;
 }
+type str_alias = string;
 
 export interface TopicScoreItem {
   topicId: string;
@@ -69,6 +76,7 @@ export interface PaperSummary {
   year: number;
   venue: 'IEEE InfoVis' | 'IEEE VAST' | 'IEEE SciVis' | 'IEEE VIS' | string;
   doi: string;
+  abstract: string;
   citationCount: number;
   relevanceScore: number;
   primaryTopicId: string;
@@ -85,7 +93,8 @@ export interface CitationNode {
   relevanceScore: number;
   primaryTopicId: string;
   authors: string[];
-  // Optional D3 simulation coordinates
+  /** True when node belongs primarily to a different research topic and is pulled in via citation linkage */
+  isCrossTopic?: boolean;
   x?: number;
   y?: number;
   vx?: number;
@@ -105,14 +114,40 @@ export interface TopicYearlyPoint {
   paperCount: number;
 }
 
+export interface TopicAuthorSummary {
+  id: string;
+  name: string;
+  rawName?: string;
+  affiliation: string;
+  topicPaperCount: number;
+  topicCitations: number;
+  hIndex: number;
+  topicHIndex?: number;
+}
+
 export interface TopicDetailResponse {
   topic: TopicSummary;
+  seminalPapers: PaperSummary[];
+  leadingAuthors: TopicAuthorSummary[];
   papers: PaperSummary[];
   citationNetwork: {
     nodes: CitationNode[];
     links: CitationLink[];
+    /** Explicit description of the active backend/frontend graph filtering method */
+    filteringCriteria?: string;
+    coreSubfieldNodeCount?: number;
+    crossTopicNodeCount?: number;
+    standaloneNodeCount?: number;
   };
   yearlyTrend: TopicYearlyPoint[];
+}
+
+export interface StandoutPaperBrief {
+  id: string;
+  title: string;
+  year?: number;
+  venue: string;
+  citationCount: number;
 }
 
 export interface AuthorYearlyStat {
@@ -120,6 +155,8 @@ export interface AuthorYearlyStat {
   paperCount: number;
   citationSum: number;
   topicBreakdown: Record<string, number>;
+  standoutPaper: StandoutPaperBrief | null;
+  yearPapers?: StandoutPaperBrief[];
 }
 
 export interface AuthorTopicShare {
@@ -138,6 +175,7 @@ export interface AuthorDetailResponse {
   totalCitations: number;
   hIndex: number;
   primaryTopicId: string;
+  secondaryTopicId: string;
   activeStartYear: number;
   activeEndYear: number;
   yearlyStats: AuthorYearlyStat[];

@@ -47,59 +47,75 @@ TOPIC_PALETTE = [
 DEFAULT_TOPIC_ANCHORS = [
     {
         "id": "topic-0",
-        "name": "Graph & Network Layout",
-        "short_name": "Graph Layout",
+        "name": "Graph & Network Visualization",
+        "short_name": "Graph & Network",
         "color": "#2563EB",
+        "description": "Investigates how to draw complex networks, trees, and connected systems clearly without tangled links.",
+        "keyword_summary": "Co-occurs in papers designing readable node-link diagrams, matrix views, and edge-bundling layouts.",
         "seed_terms": ["graph", "network", "node", "edge", "bundling", "layout", "topology", "force", "matrix", "hierarchy"],
     },
     {
         "id": "topic-1",
-        "name": "Volume & Scientific Flow Rendering",
-        "short_name": "Volume & Flow",
+        "name": "Scientific & Volume Visualization (SciVis)",
+        "short_name": "SciVis & Volume",
         "color": "#0D9488",
+        "description": "Focuses on rendering 3D medical scans, fluid simulations, and physical phenomena from engineering and science.",
+        "keyword_summary": "Groups around algorithms for 3D ray-casting, fluid streamlines, and GPU-accelerated simulation rendering.",
         "seed_terms": ["volume", "rendering", "isosurface", "flow", "streamline", "vector", "turbulence", "gpu", "ray", "voxel"],
     },
     {
         "id": "topic-2",
-        "name": "Visual Analytics & Explainable ML",
-        "short_name": "Visual Analytics & ML",
+        "name": "Visual Analytics & Machine Learning / XAI",
+        "short_name": "Visual Analytics & XAI",
         "color": "#7C3AED",
+        "description": "Designs interactive interfaces that help people inspect, debug, and understand machine learning and AI models.",
+        "keyword_summary": "Clusters around opening black-box neural networks, explaining model predictions, and interactive AI steering.",
         "seed_terms": ["model", "machine", "learning", "neural", "classification", "steering", "interactive", "explainable", "feature", "analytics"],
     },
     {
         "id": "topic-3",
-        "name": "High-Dimensional & Projections",
-        "short_name": "High-Dim & Projections",
+        "name": "High-Dimensional & Multivariate Data",
+        "short_name": "High-Dimensional Data",
         "color": "#D97706",
+        "description": "Explores techniques for summarizing datasets with dozens or hundreds of variables into readable 2D patterns.",
+        "keyword_summary": "Connects projection techniques (like t-SNE and UMAP) with multi-axis charts for spotting hidden clusters.",
         "seed_terms": ["dimensionality", "reduction", "projection", "subspace", "tsne", "umap", "parallel", "coordinates", "scatterplot", "cluster"],
     },
     {
         "id": "topic-4",
-        "name": "Perceptual Evaluation & Color",
-        "short_name": "Perception & Color",
+        "name": "Perception & Color / Evaluation",
+        "short_name": "Perception & Evaluation",
         "color": "#E11D48",
+        "description": "Studies how human vision and cognition interpret charts, color scales, and uncertainty through user experiments.",
+        "keyword_summary": "Links human-subject experiments and perceptual accuracy tests with accessible colormap design.",
         "seed_terms": ["perception", "empirical", "study", "colormap", "graphical", "encoding", "attention", "cognitive", "accuracy", "judgment"],
     },
     {
         "id": "topic-5",
-        "name": "Declarative Grammars & Narrative Vis",
-        "short_name": "Grammars & Storytelling",
+        "name": "Interaction Techniques & Human-in-the-Loop",
+        "short_name": "Interaction & Toolkits",
         "color": "#059669",
-        "seed_terms": ["grammar", "declarative", "narrative", "storytelling", "specification", "vega", "d3", "interaction", "authoring", "reactive"],
+        "description": "Builds visualization toolkits, grammars, and interactive manipulation techniques that empower fluid data exploration.",
+        "keyword_summary": "Unites visualization building blocks (D3, Vega-Lite) with responsive brushing, linking, and authoring workflows.",
+        "seed_terms": ["grammar", "declarative", "interaction", "specification", "vega", "d3", "brushing", "authoring", "reactive", "toolkit"],
     },
     {
         "id": "topic-6",
-        "name": "Spatiotemporal & Urban Analytics",
-        "short_name": "Spatiotemporal & Geo",
+        "name": "Geospatial & Spatial Data",
+        "short_name": "Geospatial & Urban",
         "color": "#4F46E5",
-        "seed_terms": ["spatial", "temporal", "trajectory", "urban", "mobility", "geographic", "map", "time", "series", "event"],
+        "description": "Develops map-based visualizations and trajectory tools to analyze movement, urban systems, and geographic trends.",
+        "keyword_summary": "Combines GPS trajectory mapping, city-scale mobility flows, and spatial-temporal pattern discovery.",
+        "seed_terms": ["spatial", "temporal", "trajectory", "urban", "mobility", "geographic", "map", "flow", "cartogram", "location"],
     },
     {
         "id": "topic-7",
-        "name": "Uncertainty & Ensemble Visualization",
-        "short_name": "Uncertainty & Ensembles",
+        "name": "Text & Document Analytics",
+        "short_name": "Text & Documents",
         "color": "#EA580C",
-        "seed_terms": ["uncertainty", "ensemble", "probabilistic", "confidence", "distribution", "error", "simulation", "forecast", "quantification", "variability"],
+        "description": "Creates visual summaries to help researchers read, compare, and narrative-tell across large collections of text.",
+        "keyword_summary": "Brings together document topic exploration, visual storytelling, and longitudinal text stream analysis.",
+        "seed_terms": ["text", "document", "corpus", "narrative", "storytelling", "topic", "discourse", "sentiment", "timeline", "annotation"],
     },
 ]
 
@@ -113,6 +129,17 @@ def clean_text(text: str) -> str:
     text = re.sub(r"[^a-z0-9\s\-]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def clean_author_display_name(raw_name: str) -> str:
+    """
+    Strips trailing DBLP disambiguation digits (e.g., 'Meng Xia 0002' -> 'Meng Xia')
+    for UI display while preserving the raw unique identifier internally.
+    """
+    if not raw_name:
+        return "Anonymous VIS Researcher"
+    cleaned = re.sub(r"\s+\d{3,4}$", "", raw_name.strip()).strip()
+    return cleaned or raw_name.strip()
 
 
 def create_database_schema(conn: sqlite3.Connection) -> None:
@@ -188,6 +215,7 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE authors (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            raw_name TEXT NOT NULL,
             affiliation TEXT NOT NULL,
             total_papers INTEGER NOT NULL,
             total_citations INTEGER NOT NULL,
@@ -230,6 +258,19 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX idx_paper_authors_author ON paper_authors(author_id);
         CREATE INDEX idx_citations_source ON paper_citations(source_paper_id);
         CREATE INDEX idx_citations_target ON paper_citations(target_paper_id);
+
+        -- =====================================================================
+        -- CITATION NETWORK FILTERING METHOD (TRANSPARENCY SPECIFICATION):
+        -- 1. Core Subfield Nodes: All papers where paper_topics.relevance_score >= 0.40
+        --    for the selected topic_id (or where papers.primary_topic_id == topic_id).
+        --    No arbitrary LIMIT clause is applied so the full subfield topology renders.
+        -- 2. 1-Hop Cross-Topic Citation Bridges: External papers from other topics
+        --    that directly cite or are cited by core subfield nodes are included and
+        --    flagged with is_cross_topic = 1 (rendered with dashed borders & lower opacity).
+        -- 3. Standalone Papers Toggle: Core subfield papers with 0 internal citation
+        --    links (in-degree + out-degree == 0) are retained in the topology and can be
+        --    toggled via the 'Hide Standalone Papers' UI control.
+        -- =====================================================================
         """
     )
     conn.commit()
@@ -238,17 +279,23 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
 def load_vispubdata_csv(csv_path: Path) -> List[Dict[str, Any]]:
     """
     Loads standard IEEE VIS vispubdata CSV file.
-    Expected columns: Conference, Year, Title, DOI, Abstract, AuthorNames-Deduped,
-    AuthorAffiliation, AuthorKeywords, InternalReferences, CitationCount_CrossRef.
+    Indexes ALL papers and authors without dropping records that have missing abstracts or keywords:
+    falls back gracefully to the paper title when abstract or AuthorKeywords are empty/NA.
     """
     records: List[Dict[str, Any]] = []
     with csv_path.open("r", encoding="utf-8", errors="replace") as f:
         reader = csv.DictReader(f)
         for idx, row in enumerate(reader):
             title = (row.get("Title") or "").strip()
-            abstract = (row.get("Abstract") or "").strip()
-            if not title or not abstract or abstract.lower() == "na":
+            if not title:
                 continue
+            raw_abstract = (row.get("Abstract") or "").strip()
+            # Graceful fallback to paper title if abstract is missing or 'NA'
+            abstract = (
+                raw_abstract
+                if raw_abstract and raw_abstract.lower() not in {"na", "n/a", "none", "null"}
+                else title
+            )
             try:
                 year = int(float(row.get("Year") or 2015))
             except ValueError:
@@ -260,13 +307,21 @@ def load_vispubdata_csv(csv_path: Path) -> List[Dict[str, Any]]:
 
             doi = (row.get("DOI") or f"10.1109/VIS.{year}.{idx:04d}").strip()
             venue = (row.get("Conference") or "IEEE VIS").strip()
-            authors_raw = [a.strip() for a in (row.get("AuthorNames-Deduped") or "").split(";") if a.strip()]
+            authors_raw = [
+                a.strip()
+                for a in (row.get("AuthorNames-Deduped") or row.get("AuthorNames") or "").split(";")
+                if a.strip()
+            ]
             affiliations_raw = [a.strip() for a in (row.get("AuthorAffiliation") or "").split(";") if a.strip()]
             keywords_raw = [
                 k.strip()
                 for k in re.split(r"[;,]", row.get("AuthorKeywords") or "")
-                if k.strip() and k.strip().lower() != "na"
+                if k.strip() and k.strip().lower() not in {"na", "n/a", "none", "null"}
             ]
+            # Graceful fallback to title keywords if author keywords are missing
+            if not keywords_raw:
+                keywords_raw = [w for w in clean_text(title).split() if len(w) > 3][:5]
+
             refs_raw = [r.strip() for r in (row.get("InternalReferences") or "").split(";") if r.strip()]
 
             records.append(
@@ -483,11 +538,14 @@ def run_pipeline(csv_path: Path | None, db_path: Path) -> None:
                 )
 
         for order_idx, author_name in enumerate(rec["authors"]):
+            # Preserve unique DBLP ID internally while stripping trailing digits for display
             author_id = re.sub(r"[^a-z0-9]+", "-", author_name.lower()).strip("-")
+            display_name = clean_author_display_name(author_name)
             if author_id not in author_Data:
                 author_Data[author_id] = {
                     "id": author_id,
-                    "name": author_name,
+                    "name": display_name,
+                    "raw_name": author_name,
                     "affiliation": rec["affiliation"],
                     "papers": [],
                     "citations": [],
@@ -537,13 +595,14 @@ def run_pipeline(csv_path: Path | None, db_path: Path) -> None:
         cursor.execute(
             """
             INSERT INTO authors (
-                id, name, affiliation, total_papers, total_citations,
+                id, name, raw_name, affiliation, total_papers, total_citations,
                 h_index, primary_topic_id, active_start_year, active_end_year
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 author_id,
                 a_data["name"],
+                a_data["raw_name"],
                 a_data["affiliation"],
                 len(a_data["papers"]),
                 sum(a_data["citations"]),
