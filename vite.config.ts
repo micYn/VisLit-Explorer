@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/my-website/', // Replace with your repository name
+    base: '/VisLit-Explorer/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
