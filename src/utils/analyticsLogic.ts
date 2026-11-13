@@ -22,6 +22,7 @@ import {
   TopicDetailResponse,
   TopicScoreItem,
   TopicSummary,
+  YearlyTopicPrevalence,
 } from '../types';
 
 export type PaperSortKey = 'citations' | 'relevance' | 'year';
@@ -527,6 +528,7 @@ export function toPaperSummary(rec: RawPaperRecord, topicIdForRelevance?: string
     primaryTopicId: rec.primaryTopicId,
     authors,
     keywords: safeKeywords,
+    award: rec.award ?? null,
   };
 }
 
@@ -746,6 +748,7 @@ export function buildTopicDetail(
       relevanceScore: summary.relevanceScore,
       primaryTopicId: summary.primaryTopicId,
       authors: summary.authors.map((a) => a.name),
+      award: summary.award ?? null,
       isCrossTopic,
     };
   });
@@ -1376,3 +1379,738 @@ export function listAllPapers(sortBy: PaperSortKey = 'citations'): PaperSummary[
     sortBy
   );
 }
+
+/* ============================================================================
+ * TIME-ALIGNED TOPIC EVOLUTION & CITATION LINEAGE HELPERS
+ * ========================================================================== */
+
+export type TopicEvolutionRoleFilter = 'all' | 'foundations' | 'bridges' | 'recent';
+export type TopicEvolutionScope = 30 | 60 | 150 | 'all';
+export type TopicEvolutionYAxis = 'citations' | 'relevance';
+
+export interface TopicEvolutionNode extends CitationNode {
+  inDegreeInTopic: number;
+  outDegreeInTopic: number;
+  totalDegreeInTopic: number;
+  influenceScore: number;
+  isFoundation: boolean;
+  isSurveyOrBridge: boolean;
+  isRecentFrontier: boolean;
+  isAwardWinner: boolean;
+  awardLabel: string | null;
+}
+
+export interface TopicEvolutionOptions {
+  scope?: TopicEvolutionScope;
+  roleFilter?: TopicEvolutionRoleFilter;
+  searchQuery?: string;
+  selectedPaperId?: string | null;
+}
+
+export interface TopicEvolutionGraphResult {
+  visibleNodes: TopicEvolutionNode[];
+  visibleLinks: CitationLink[];
+  allTopicNodes: TopicEvolutionNode[];
+  allTopicLinks: CitationLink[];
+  allTopicCount: number;
+  maxTopicCitations: number;
+  minTopicRelevance: number;
+  maxTopicRelevance: number;
+  roleCounts: {
+    all: number;
+    foundations: number;
+    bridges: number;
+    recent: number;
+  };
+  searchMatchIds: Set<string>;
+}
+
+export interface TopicEvolutionLineage {
+  focalId: string;
+  ancestorIds: Set<string>;
+  descendantIds: Set<string>;
+  ancestorLinks: CitationLink[];
+  descendantLinks: CitationLink[];
+}
+
+export interface PositionedTopicEvolutionNode extends TopicEvolutionNode {
+  x: number;
+  y: number;
+  baseY: number;
+  r: number;
+  jittered: boolean;
+}
+
+const AWARD_LABELS: Record<string, string> = {
+  BP: 'Best Paper',
+  HM: 'Honorable Mention',
+  TT: 'Test of Time',
+  'TT;BP': 'Test of Time & Best Paper',
+  BA: 'Best Application',
+  BCS: 'Best Case Study',
+};
+
+/**
+ * Formats Vispubdata award codes (e.g. BP, HM, TT) into plain-language labels.
+ */
+export function formatPaperAwardLabel(award?: string | null): string | null {
+  if (!award) return null;
+  const trimmed = award.trim();
+  if (!trimmed) return null;
+  return AWARD_LABELS[trimmed] || trimmed;
+}
+
+/**
+ * Builds the time-aligned topic evolution dataset, computing structural novice roles
+ * ("Foundations", "Surveys & Bridges", "Recent Frontiers") across the full topic graph
+ * before applying UI scope (Top 30 / 60 / 150 / All) while always retaining searched/selected papers.
+ */
+export function buildTopicEvolutionGraph(
+  nodes: CitationNode[],
+  links: CitationLink[],
+  activeTopicId: string,
+  options: TopicEvolutionOptions = {}
+): TopicEvolutionGraphResult {
+  const {
+    scope = 60,
+    roleFilter = 'all',
+    searchQuery = '',
+    selectedPaperId = null,
+  } = options;
+
+  // 1. Scope strictly to papers primarily belonging to this topic
+  const rawTopicNodes = nodes.filter(
+    (n) => !n.isCrossTopic && n.primaryTopicId === activeTopicId
+  );
+  const topicNodeIds = new Set(rawTopicNodes.map((n) => n.id));
+
+  // 2. Deduplicate internal citation links within the topic (source cites target)
+  const seenLinkKeys = new Set<string>();
+  const allTopicLinks: CitationLink[] = [];
+  for (const l of links) {
+    if (l.source === l.target) continue;
+    if (!topicNodeIds.has(l.source) || !topicNodeIds.has(l.target)) continue;
+    const key = `${l.source}=>${l.target}`;
+    if (seenLinkKeys.has(key)) continue;
+    seenLinkKeys.add(key);
+    allTopicLinks.push({ source: l.source, target: l.target });
+  }
+
+  // 3. Compute in-degree (cited by newer topic papers) and out-degree (cites older topic papers)
+  const inDegreeMap = new Map<string, number>();
+  const outDegreeMap = new Map<string, number>();
+  for (const n of rawTopicNodes) {
+    inDegreeMap.set(n.id, 0);
+    outDegreeMap.set(n.id, 0);
+  }
+  for (const l of allTopicLinks) {
+    outDegreeMap.set(l.source, (outDegreeMap.get(l.source) ?? 0) + 1);
+    inDegreeMap.set(l.target, (inDegreeMap.get(l.target) ?? 0) + 1);
+  }
+
+  // 4. Dynamic per-topic structural thresholds for Foundations & Surveys/Bridges
+  const sortedIn = Array.from(inDegreeMap.values()).sort((a, b) => b - a);
+  const sortedOut = Array.from(outDegreeMap.values()).sort((a, b) => b - a);
+  const targetRankIdx = Math.min(
+    Math.max(0, rawTopicNodes.length - 1),
+    Math.min(45, Math.max(15, Math.round(rawTopicNodes.length * 0.1)))
+  );
+  const foundationCutoff = Math.max(4, sortedIn[targetRankIdx] ?? 4);
+  const bridgeCutoff = Math.max(4, sortedOut[targetRankIdx] ?? 4);
+
+  const enrichedNodes: TopicEvolutionNode[] = rawTopicNodes.map((n) => {
+    const inDeg = inDegreeMap.get(n.id) ?? 0;
+    const outDeg = outDegreeMap.get(n.id) ?? 0;
+    const awardLabel = formatPaperAwardLabel(n.award);
+    const titleLower = n.title.toLowerCase();
+    const isSurveyTitle =
+      titleLower.includes('survey') ||
+      titleLower.includes('state of the art') ||
+      titleLower.includes('state-of-the-art') ||
+      titleLower.includes('taxonomy') ||
+      titleLower.includes('review');
+
+    const isFoundation = inDeg >= foundationCutoff;
+    const isSurveyOrBridge = outDeg >= bridgeCutoff || (isSurveyTitle && outDeg >= 2);
+    const isRecentFrontier = n.year >= 2023 && n.year <= 2025;
+    const influenceScore =
+      n.citationCount * (0.6 + 0.4 * n.relevanceScore) +
+      inDeg * 15 +
+      (awardLabel ? 90 : 0);
+
+    return {
+      ...n,
+      inDegreeInTopic: inDeg,
+      outDegreeInTopic: outDeg,
+      totalDegreeInTopic: inDeg + outDeg,
+      influenceScore,
+      isFoundation,
+      isSurveyOrBridge,
+      isRecentFrontier,
+      isAwardWinner: Boolean(awardLabel),
+      awardLabel,
+    };
+  });
+
+  const maxTopicCitations = enrichedNodes.reduce(
+    (max, n) => Math.max(max, n.citationCount),
+    10
+  );
+  const minTopicRelevance = enrichedNodes.reduce(
+    (min, n) => Math.min(min, n.relevanceScore),
+    1
+  );
+  const maxTopicRelevance = enrichedNodes.reduce(
+    (max, n) => Math.max(max, n.relevanceScore),
+    0.5
+  );
+
+  const roleCounts = {
+    all: enrichedNodes.length,
+    foundations: enrichedNodes.filter((n) => n.isFoundation).length,
+    bridges: enrichedNodes.filter((n) => n.isSurveyOrBridge).length,
+    recent: enrichedNodes.filter((n) => n.isRecentFrontier).length,
+  };
+
+  // 5. Filter by novice role pill
+  const roleFiltered = enrichedNodes.filter((n) => {
+    if (roleFilter === 'foundations') return n.isFoundation;
+    if (roleFilter === 'bridges') return n.isSurveyOrBridge;
+    if (roleFilter === 'recent') return n.isRecentFrontier;
+    return true;
+  });
+
+  // 6. Rank within the selected role so Top 30/60/150 surfaces the strongest exemplars
+  const sortedPool = [...roleFiltered].sort((a, b) => {
+    if (roleFilter === 'foundations') {
+      return (
+        b.inDegreeInTopic - a.inDegreeInTopic ||
+        b.citationCount - a.citationCount ||
+        a.year - b.year
+      );
+    }
+    if (roleFilter === 'bridges') {
+      return (
+        b.outDegreeInTopic - a.outDegreeInTopic ||
+        b.influenceScore - a.influenceScore
+      );
+    }
+    if (roleFilter === 'recent') {
+      return (
+        b.year - a.year ||
+        b.citationCount - a.citationCount ||
+        b.relevanceScore - a.relevanceScore
+      );
+    }
+    return b.influenceScore - a.influenceScore || b.citationCount - a.citationCount;
+  });
+
+  const scopedNodes =
+    scope === 'all' ? sortedPool : sortedPool.slice(0, Math.max(1, scope));
+  const visibleMap = new Map<string, TopicEvolutionNode>(
+    scopedNodes.map((n) => [n.id, n])
+  );
+
+  // 7. Always include searched or selected papers so user selections never vanish
+  const trimmedSearch = searchQuery.trim();
+  const searchMatchIds = new Set<string>();
+  if (trimmedSearch) {
+    for (const n of enrichedNodes) {
+      const hay = `${n.title} ${n.authors.join(' ')} ${n.year} ${n.venue}`;
+      if (matchesFlexibleQuery(hay, trimmedSearch)) {
+        searchMatchIds.add(n.id);
+        if (!visibleMap.has(n.id)) {
+          visibleMap.set(n.id, n);
+        }
+      }
+    }
+  }
+
+  if (selectedPaperId) {
+    const selectedNode = enrichedNodes.find((n) => n.id === selectedPaperId);
+    if (selectedNode && !visibleMap.has(selectedNode.id)) {
+      visibleMap.set(selectedNode.id, selectedNode);
+    }
+  }
+
+  const visibleNodes = Array.from(visibleMap.values());
+  const visibleIdSet = new Set(visibleNodes.map((n) => n.id));
+  const visibleLinks = allTopicLinks.filter(
+    (l) => visibleIdSet.has(l.source) && visibleIdSet.has(l.target)
+  );
+
+  return {
+    visibleNodes,
+    visibleLinks,
+    allTopicNodes: enrichedNodes,
+    allTopicLinks,
+    allTopicCount: enrichedNodes.length,
+    maxTopicCitations,
+    minTopicRelevance: enrichedNodes.length > 0 ? minTopicRelevance : 0,
+    maxTopicRelevance: enrichedNodes.length > 0 ? maxTopicRelevance : 1,
+    roleCounts,
+    searchMatchIds,
+  };
+}
+
+/**
+ * Traces direct citation lineage for a focal paper within the visible topic graph:
+ * - Ancestors / Foundations: older papers cited by the focal paper (`source === focalId`)
+ * - Descendants / Follow-ups: newer papers citing the focal paper (`target === focalId`)
+ */
+export function computeNodeLineage(
+  focalId: string | null,
+  links: CitationLink[]
+): TopicEvolutionLineage | null {
+  if (!focalId) return null;
+  const ancestorIds = new Set<string>();
+  const descendantIds = new Set<string>();
+  const ancestorLinks: CitationLink[] = [];
+  const descendantLinks: CitationLink[] = [];
+
+  for (const l of links) {
+    if (l.source === focalId && l.target !== focalId) {
+      ancestorIds.add(l.target);
+      ancestorLinks.push(l);
+    } else if (l.target === focalId && l.source !== focalId) {
+      descendantIds.add(l.source);
+      descendantLinks.push(l);
+    }
+  }
+
+  return {
+    focalId,
+    ancestorIds,
+    descendantIds,
+    ancestorLinks,
+    descendantLinks,
+  };
+}
+
+/**
+ * Computes time-aligned coordinates (X = Year 1990-2025, Y = Log Citations or Topic Relevance)
+ * with slight deterministic vertical jitter ONLY when two papers overlap visually.
+ */
+export function computeTopicEvolutionPositions(
+  nodes: TopicEvolutionNode[],
+  yAxisMode: TopicEvolutionYAxis,
+  dimensions: {
+    innerWidth: number;
+    innerHeight: number;
+    minYear?: number;
+    maxYear?: number;
+    maxCitations: number;
+    minRelevance: number;
+    maxRelevance: number;
+  }
+): PositionedTopicEvolutionNode[] {
+  const {
+    innerWidth,
+    innerHeight,
+    minYear = 1990,
+    maxYear = 2025,
+    maxCitations,
+    minRelevance,
+    maxRelevance,
+  } = dimensions;
+
+  const yearSpan = Math.max(1, maxYear - minYear);
+  const maxLog = Math.log10(Math.max(10, maxCitations) + 1);
+
+  const relFloor = Math.max(0, Math.floor(minRelevance * 10) / 10);
+  const relCeil = Math.min(1, Math.max(relFloor + 0.2, Math.ceil(maxRelevance * 10) / 10));
+  const relSpan = Math.max(0.1, relCeil - relFloor);
+
+  const maxCiteRef = Math.max(1, maxCitations);
+  const minR = nodes.length > 200 ? 4 : 5.5;
+  const maxR = nodes.length > 200 ? 14 : 18;
+
+  // Deterministic order: highest-citation landmarks anchor first on their exact coordinates
+  const ordered = [...nodes].sort(
+    (a, b) =>
+      b.citationCount - a.citationCount ||
+      b.relevanceScore - a.relevanceScore ||
+      a.id.localeCompare(b.id)
+  );
+
+  const placed: PositionedTopicEvolutionNode[] = [];
+  const maxJitter = nodes.length > 200 ? 22 : 34;
+
+  // Spatial bucket by rounded year column for fast O(1) neighbor overlap checks
+  const byYearBucket = new Map<number, PositionedTopicEvolutionNode[]>();
+
+  for (const node of ordered) {
+    const clampedYear = Math.max(minYear, Math.min(maxYear, node.year));
+    const x = ((clampedYear - minYear) / yearSpan) * innerWidth;
+
+    const normY =
+      yAxisMode === 'citations'
+        ? Math.log10(Math.max(0, node.citationCount) + 1) / maxLog
+        : Math.max(0, Math.min(1, (node.relevanceScore - relFloor) / relSpan));
+
+    const r =
+      minR +
+      Math.sqrt(Math.max(0, node.citationCount) / maxCiteRef) * (maxR - minR);
+
+    const pad = r + 3;
+    const baseY = Math.max(
+      pad,
+      Math.min(innerHeight - pad, innerHeight - normY * (innerHeight - 16) - 8)
+    );
+
+    // Check nearby years (within ~2 years horizontally) for visual collisions
+    const nearby: PositionedTopicEvolutionNode[] = [];
+    for (let yr = clampedYear - 2; yr <= clampedYear + 2; yr++) {
+      const bucket = byYearBucket.get(yr);
+      if (bucket) nearby.push(...bucket);
+    }
+
+    const collidesAt = (cy: number): boolean => {
+      for (const p of nearby) {
+        const minDist = r + p.r + 1.5;
+        if (Math.abs(x - p.x) < minDist && Math.abs(cy - p.y) < minDist) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    let finalY = baseY;
+    let jittered = false;
+    if (collidesAt(baseY)) {
+      // Deterministic alternating small vertical offsets (+step, -step, +2*step, ...)
+      const step = nodes.length > 200 ? 5 : 7;
+      for (let mag = step; mag <= maxJitter; mag += step) {
+        const up = baseY - mag;
+        if (up >= pad && !collidesAt(up)) {
+          finalY = up;
+          jittered = true;
+          break;
+        }
+        const down = baseY + mag;
+        if (down <= innerHeight - pad && !collidesAt(down)) {
+          finalY = down;
+          jittered = true;
+          break;
+        }
+      }
+    }
+
+    const positioned: PositionedTopicEvolutionNode = {
+      ...node,
+      x,
+      y: finalY,
+      baseY,
+      r,
+      jittered,
+    };
+    placed.push(positioned);
+    const list = byYearBucket.get(clampedYear);
+    if (list) list.push(positioned);
+    else byYearBucket.set(clampedYear, [positioned]);
+  }
+
+  return placed;
+}
+
+/* ============================================================================
+ * TOPIC TRAJECTORY, INFLECTION DETECTOR & LIFECYCLE REGIMES (1990-2025)
+ * ========================================================================== */
+
+export type TopicLifecycleRegime = 'Surging' | 'Rebounding' | 'Steady Core' | 'Past Peak';
+
+export interface TopicSmoothedSharePoint {
+  year: number;
+  share: number;
+}
+
+export interface TopicTrajectorySummary {
+  topicId: string;
+  shortName: string;
+  color: string;
+  recent5Share: number;
+  prev5Share: number;
+  recentDelta: number;
+  peakYear: number;
+  peakShare: number;
+  dropFromPeak: number;
+  dropInflectionYear: number | null;
+  takeoffInflectionYear: number | null;
+  regime: TopicLifecycleRegime;
+  smoothedSeries: TopicSmoothedSharePoint[];
+  priorAvgSharePct: number;
+  recentAvgSharePct: number;
+  shareDeltaPct: number;
+  peakSharePct: number;
+  dropFromPeakPct: number;
+  isRising: boolean;
+  emergingKeywords: string[];
+}
+
+export type TopicMomentumSummary = TopicTrajectorySummary;
+
+const MOMENTUM_GENERIC_STOPWORDS = new Set([
+  'data visualization',
+  'information visualization',
+  'visual analytics',
+  'scientific visualization',
+  'visualization',
+  'visualizations',
+  'vis',
+  'ieee vis',
+]);
+
+/**
+ * Computes each topic's 3-year smoothed trajectory (1990-2025), 5-year shift
+ * (2021-2025 vs 2016-2020), all-time peak year/share, drop-off & takeoff
+ * inflection years, lifecycle regime, and emerging 2021-2025 keywords.
+ */
+export function computeTopicMomentum(
+  topics: TopicSummary[],
+  streamData: YearlyTopicPrevalence[],
+  papers: RawPaperRecord[] = RAW_PAPERS
+): TopicTrajectorySummary[] {
+  const orderedRows = [...streamData].sort((a, b) => a.year - b.year);
+
+  const papersByTopicId = new Map<string, RawPaperRecord[]>();
+  for (const p of papers) {
+    const list = papersByTopicId.get(p.primaryTopicId);
+    if (list) list.push(p);
+    else papersByTopicId.set(p.primaryTopicId, [p]);
+  }
+
+  const summaries: TopicTrajectorySummary[] = topics.map((t) => {
+    const n = orderedRows.length;
+
+    // 1. 3-year smoothed yearly topic shares (matching Streamgraph's 3-year rolling window)
+    const smoothedSeries: TopicSmoothedSharePoint[] = orderedRows.map((row, idx) => {
+      const lo = Math.max(0, idx - 1);
+      const hi = Math.min(n - 1, idx + 1);
+      let acc = 0;
+      for (let j = lo; j <= hi; j++) {
+        acc += orderedRows[j].values[t.id] ?? 0;
+      }
+      return {
+        year: row.year,
+        share: acc / Math.max(1, hi - lo + 1),
+      };
+    });
+
+    // Centered 3-year rolling slope (share change per year)
+    const slopes: number[] = smoothedSeries.map((_, idx) => {
+      if (n <= 1) return 0;
+      const prev = smoothedSeries[Math.max(0, idx - 1)];
+      const next = smoothedSeries[Math.min(n - 1, idx + 1)];
+      return (next.share - prev.share) / Math.max(1, next.year - prev.year);
+    });
+
+    // 2. Peak year & share across 1990-2025
+    let peakIdx = 0;
+    for (let i = 1; i < n; i++) {
+      if (smoothedSeries[i].share > smoothedSeries[peakIdx].share) {
+        peakIdx = i;
+      }
+    }
+    const peakYear = smoothedSeries[peakIdx]?.year ?? 1990;
+    const peakShare = smoothedSeries[peakIdx]?.share ?? 0;
+
+    // 3. 2021-2025 vs 2016-2020 smoothed averages
+    const recentRows = smoothedSeries.filter((d) => d.year >= 2021 && d.year <= 2025);
+    const prevRows = smoothedSeries.filter((d) => d.year >= 2016 && d.year <= 2020);
+    const recent5Share =
+      recentRows.length > 0
+        ? recentRows.reduce((s, r) => s + r.share, 0) / recentRows.length
+        : smoothedSeries[n - 1]?.share ?? 0;
+    const prev5Share =
+      prevRows.length > 0
+        ? prevRows.reduce((s, r) => s + r.share, 0) / prevRows.length
+        : recent5Share;
+
+    const recentDelta = recent5Share - prev5Share;
+    const dropFromPeak = recent5Share - peakShare;
+
+    // 4. Drop-off inflection year: first post-peak year where 3-year rolling slope turns sharply negative
+    let dropInflectionYear: number | null = null;
+    if (dropFromPeak <= -0.04 && peakIdx < n - 1) {
+      // Suffix max helps skip brief dips before a full near-peak recovery (e.g., SciVis 1994 -> 2004 plateau -> 2005 cliff)
+      const suffixMax = new Array<number>(n).fill(0);
+      suffixMax[n - 1] = smoothedSeries[n - 1].share;
+      for (let i = n - 2; i >= 0; i--) {
+        suffixMax[i] = Math.max(smoothedSeries[i].share, suffixMax[i + 1]);
+      }
+
+      let candidateIdx = -1;
+      for (let i = peakIdx + 1; i < n; i++) {
+        const laterMax = i + 1 < n ? suffixMax[i + 1] : smoothedSeries[i].share;
+        if (slopes[i] <= -0.008 && laterMax <= peakShare - 0.025) {
+          candidateIdx = i;
+          break;
+        }
+      }
+      if (candidateIdx === -1) {
+        for (let i = peakIdx + 1; i < n; i++) {
+          if (slopes[i] <= -0.008) {
+            candidateIdx = i;
+            break;
+          }
+        }
+      }
+      if (candidateIdx === -1) {
+        let minSlope = Infinity;
+        for (let i = peakIdx + 1; i < n; i++) {
+          if (slopes[i] < minSlope) {
+            minSlope = slopes[i];
+            candidateIdx = i;
+          }
+        }
+      }
+      if (candidateIdx !== -1) {
+        dropInflectionYear = smoothedSeries[candidateIdx].year;
+      }
+    }
+
+    // 5. Takeoff inflection year: recent year where 3-year rolling slope accelerates upward
+    let takeoffInflectionYear: number | null = null;
+    if (recentDelta >= 0.011 && n >= 3) {
+      const scanWindow = (minYr: number, maxYr: number): number | null => {
+        let bestIdx = -1;
+        let bestAccel = -Infinity;
+        for (let i = 1; i < n; i++) {
+          const yr = smoothedSeries[i].year;
+          if (yr < minYr || yr > maxYr) continue;
+          const accel = slopes[i] - slopes[i - 1];
+          if (slopes[i] >= 0.005 && accel > 0.002 && accel > bestAccel) {
+            bestAccel = accel;
+            bestIdx = i;
+          }
+        }
+        return bestIdx !== -1 ? smoothedSeries[bestIdx].year : null;
+      };
+
+      takeoffInflectionYear =
+        scanWindow(2018, 2023) ?? scanWindow(2013, 2023);
+
+      if (takeoffInflectionYear === null) {
+        let maxSlope = -Infinity;
+        for (let i = 1; i < n; i++) {
+          if (smoothedSeries[i].year >= 2013 && slopes[i] > maxSlope) {
+            maxSlope = slopes[i];
+            takeoffInflectionYear = smoothedSeries[i].year;
+          }
+        }
+      }
+    }
+
+    // 6. Lifecycle Regime Classification
+    let regime: TopicLifecycleRegime = 'Steady Core';
+    if (recentDelta >= 0.018) {
+      regime = 'Surging';
+    } else if (recentDelta >= 0.008 && dropFromPeak <= -0.025) {
+      regime = 'Rebounding';
+    } else if (dropFromPeak <= -0.04 && recentDelta < 0) {
+      regime = 'Past Peak';
+    }
+
+    const priorAvgSharePct = Number((prev5Share * 100).toFixed(1));
+    const recentAvgSharePct = Number((recent5Share * 100).toFixed(1));
+    const shareDeltaPct = Number((recentDelta * 100).toFixed(1));
+    const peakSharePct = Number((peakShare * 100).toFixed(1));
+    const dropFromPeakPct = Number((dropFromPeak * 100).toFixed(1));
+
+    // 7. Identify top 2-3 emerging author keywords in 2021-2025 vs pre-2021
+    const topicPapers = papersByTopicId.get(t.id) ?? [];
+    const recentPapers = topicPapers.filter((p) => p.year >= 2021 && p.year <= 2025);
+    const earlierPapers = topicPapers.filter((p) => p.year < 2021);
+
+    const recFreq = new Map<string, number>();
+    const earFreq = new Map<string, number>();
+
+    for (const p of recentPapers) {
+      const seen = new Set<string>();
+      for (const kw of p.keywords || []) {
+        const clean = kw.trim().toLowerCase();
+        if (!clean || clean.length < 3 || MOMENTUM_GENERIC_STOPWORDS.has(clean) || seen.has(clean)) {
+          continue;
+        }
+        seen.add(clean);
+        recFreq.set(clean, (recFreq.get(clean) ?? 0) + 1);
+      }
+    }
+
+    for (const p of earlierPapers) {
+      const seen = new Set<string>();
+      for (const kw of p.keywords || []) {
+        const clean = kw.trim().toLowerCase();
+        if (!clean || clean.length < 3 || MOMENTUM_GENERIC_STOPWORDS.has(clean) || seen.has(clean)) {
+          continue;
+        }
+        seen.add(clean);
+        earFreq.set(clean, (earFreq.get(clean) ?? 0) + 1);
+      }
+    }
+
+    const candidates = Array.from(recFreq.entries())
+      .filter(([, recCount]) => recCount >= 2)
+      .map(([term, recCount]) => {
+        const earCount = earFreq.get(term) ?? 0;
+        const recRate = recCount / Math.max(1, recentPapers.length);
+        const earRate = earCount / Math.max(1, earlierPapers.length);
+        const lift = (recRate + 0.004) / (earRate + 0.004);
+        const score = (recRate - earRate) * Math.log2(1 + lift) * 100;
+        return { term, recCount, lift, score };
+      })
+      .filter((c) => c.score > 0 && c.lift >= 1.45)
+      .sort((a, b) => b.score - a.score || b.recCount - a.recCount);
+
+    const emergingKeywords: string[] = [];
+    const seenStems = new Set<string>();
+    for (const c of candidates) {
+      if (emergingKeywords.length >= 3) break;
+      if (c.recCount < 3 && emergingKeywords.length >= 2) continue;
+      const stem = c.term.replace(/s$/, '');
+      if (seenStems.has(stem)) continue;
+      seenStems.add(stem);
+      emergingKeywords.push(c.term);
+    }
+
+    if (emergingKeywords.length === 0) {
+      for (const kw of t.topKeywords.slice(0, 3)) {
+        emergingKeywords.push(kw.term);
+      }
+    }
+
+    return {
+      topicId: t.id,
+      shortName: t.shortName,
+      color: t.color,
+      recent5Share,
+      prev5Share,
+      recentDelta,
+      peakYear,
+      peakShare,
+      dropFromPeak,
+      dropInflectionYear,
+      takeoffInflectionYear,
+      regime,
+      smoothedSeries,
+      priorAvgSharePct,
+      recentAvgSharePct,
+      shareDeltaPct,
+      peakSharePct,
+      dropFromPeakPct,
+      isRising: recentDelta > 0,
+      emergingKeywords: emergingKeywords.slice(0, 3),
+    };
+  });
+
+  return summaries.sort(
+    (a, b) =>
+      b.shareDeltaPct - a.shareDeltaPct ||
+      b.recentAvgSharePct - a.recentAvgSharePct
+  );
+}
+
+export const computeTopicTrajectories = computeTopicMomentum;
+
+
+

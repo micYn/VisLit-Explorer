@@ -6,7 +6,7 @@ import {
   TopicDetailResponse,
   TopicSummary,
 } from '../types';
-import { CitationNetwork } from './CitationNetwork';
+import { TopicEvolutionChart } from './TopicEvolutionChart';
 import { PaperEgoNetwork } from './PaperEgoNetwork';
 import {
    filterAuthorsByQuery,
@@ -422,19 +422,16 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Main Split: D3 Citation Network (Left 6 cols) + Ranked Paper List (Right 6 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        <div className="lg:col-span-6">
-          <CitationNetwork
-            nodes={data.citationNetwork.nodes}
-            links={data.citationNetwork.links}
-            activeTopic={data.topic}
-            onSelectPaper={onSelectPaper}
-          />
-        </div>
+      {/* Full-Width Time-Aligned Topic Evolution & Citation Lineage */}
+      <TopicEvolutionChart
+        nodes={data.citationNetwork.nodes}
+        links={data.citationNetwork.links}
+        activeTopic={data.topic}
+        onSelectPaper={onSelectPaper}
+      />
 
-        {/* Right: Topic Literature Ranking with Topic Fit Relevance Threshold (Subset Preview) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between">
+      {/* Full-Width Topic Literature Ranking with Topic Fit Relevance Threshold (Subset Preview) */}
+      <div className="bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between">
           <div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div>
@@ -662,7 +659,6 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
             </div>
           )}
         </div>
-      </div>
 
       {/* "View All Papers in this Subfield" Explorer Modal (Respects active Min Topic Fit & Sorting Controls) */}
       {isAllPapersModalOpen && (

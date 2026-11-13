@@ -9,10 +9,15 @@ import {
   buildFieldOverview,
   buildPaperDetail,
   buildTopicDetail,
+  buildTopicEvolutionGraph,
   cleanAuthorDisplayName,
+  computeNodeLineage,
+  computeTopicEvolutionPositions,
   computeTopicHIndex,
+  computeTopicMomentum,
   computeTopicVectorCosineSimilarity,
   filterAuthorsByQuery,
+  formatPaperAwardLabel,
   getCorrelationBetween,
   getCorrelationGraphEdges,
   listAllAuthors,
@@ -458,3 +463,137 @@ test('Cosine topic similarity and decoupled CitationNetwork / EgoNetwork topolog
   assert.equal(egoAll.relatedList.length, cushion.relatedPapers.length);
   assert.equal(egoAll.citedByList.length, cushion.citedByPapers.length);
 });
+
+test('Time-Aligned Topic Evolution & Citation Lineage scopes cleanly, computes novice roles, traces ancestors/descendants, and avoids force hairball', () => {
+  assert.equal(formatPaperAwardLabel('BP'), 'Best Paper');
+  assert.equal(formatPaperAwardLabel('HM'), 'Honorable Mention');
+  assert.equal(formatPaperAwardLabel('TT'), 'Test of Time');
+  assert.equal(formatPaperAwardLabel('TT;BP'), 'Test of Time & Best Paper');
+  assert.equal(formatPaperAwardLabel(null), null);
+
+  const topic0 = buildTopicDetail('topic-0', 'citations');
+  const defaultTop60 = buildTopicEvolutionGraph(
+    topic0.citationNetwork.nodes,
+    topic0.citationNetwork.links,
+    'topic-0',
+    { scope: 60, roleFilter: 'all' }
+  );
+
+  assert.equal(defaultTop60.visibleNodes.length, 60);
+  assert.equal(defaultTop60.allTopicCount, topic0.papers.length);
+  assert.ok(defaultTop60.visibleNodes.every((n) => !n.isCrossTopic && n.primaryTopicId === 'topic-0'));
+  assert.ok(defaultTop60.roleCounts.foundations >= 15);
+  assert.ok(defaultTop60.roleCounts.bridges >= 15);
+  assert.ok(defaultTop60.roleCounts.recent >= 10);
+  assert.ok(defaultTop60.visibleNodes.some((n) => n.isAwardWinner));
+
+  // Recent Frontiers filter strictly returns 2023-2025 papers
+  const recentOnly = buildTopicEvolutionGraph(
+    topic0.citationNetwork.nodes,
+    topic0.citationNetwork.links,
+    'topic-0',
+    { scope: 60, roleFilter: 'recent' }
+  );
+  assert.ok(recentOnly.visibleNodes.length > 0);
+  assert.ok(recentOnly.visibleNodes.every((n) => n.year >= 2023 && n.year <= 2025));
+
+  // Search query force-includes matching papers even when outside Top 30
+  const lowestCitedTopicPaper = [...topic0.papers].sort((a, b) => a.citationCount - b.citationCount)[0];
+  const withSearched = buildTopicEvolutionGraph(
+    topic0.citationNetwork.nodes,
+    topic0.citationNetwork.links,
+    'topic-0',
+    { scope: 30, roleFilter: 'all', searchQuery: lowestCitedTopicPaper.title }
+  );
+  assert.ok(withSearched.visibleNodes.some((n) => n.id === lowestCitedTopicPaper.id));
+  assert.ok(withSearched.searchMatchIds.has(lowestCitedTopicPaper.id));
+
+  // Lineage tracing identifies direct ancestors and descendants for a connected paper
+  const connectedNode = defaultTop60.visibleNodes.find((n) =>
+    defaultTop60.visibleLinks.some((l) => l.source === n.id || l.target === n.id)
+  );
+  assert.ok(connectedNode, 'Top 60 should include connected papers');
+  const lineage = computeNodeLineage(connectedNode.id, defaultTop60.visibleLinks);
+  assert.ok(lineage);
+  assert.equal(
+    lineage.ancestorIds.size + lineage.descendantIds.size > 0,
+    true,
+    'Connected paper should resolve ancestors and/or descendants'
+  );
+
+  // Deterministic time-aligned coordinates: later years strictly have larger X
+  const posCitations = computeTopicEvolutionPositions(defaultTop60.visibleNodes, 'citations', {
+    innerWidth: 1000,
+    innerHeight: 360,
+    maxCitations: defaultTop60.maxTopicCitations,
+    minRelevance: defaultTop60.minTopicRelevance,
+    maxRelevance: defaultTop60.maxTopicRelevance,
+  });
+  const posRelevance = computeTopicEvolutionPositions(defaultTop60.visibleNodes, 'relevance', {
+    innerWidth: 1000,
+    innerHeight: 360,
+    maxCitations: defaultTop60.maxTopicCitations,
+    minRelevance: defaultTop60.minTopicRelevance,
+    maxRelevance: defaultTop60.maxTopicRelevance,
+  });
+  assert.equal(posCitations.length, 60);
+  assert.equal(posRelevance.length, 60);
+  const older = posCitations.find((p) => p.year <= 2005);
+  const newer = posCitations.find((p) => p.year >= 2018);
+  assert.ok(older && newer && older.x < newer.x);
+});
+
+test('computeTopicMomentum computes 3-yr smoothed trajectories, 5-yr shifts, peaks, inflection years, and lifecycle regimes', () => {
+  const field = buildFieldOverview();
+  const momentum = computeTopicMomentum(field.topics, field.streamData);
+
+  assert.equal(momentum.length, field.topics.length);
+  for (let i = 1; i < momentum.length; i++) {
+    assert.ok(
+      momentum[i - 1].shareDeltaPct >= momentum[i].shareDeltaPct,
+      'Trajectory strip must be sorted descending from fastest-growing to declining'
+    );
+  }
+
+  // Sum of share deltas across all 8 topics should balance cleanly near 0%
+  const netDelta = momentum.reduce((sum, m) => sum + m.shareDeltaPct, 0);
+  assert.ok(Math.abs(netDelta) <= 0.6, `Net share delta across all topics should be near 0, got ${netDelta}`);
+
+  const scivis = momentum.find((m) => m.topicId === 'topic-1');
+  assert.ok(scivis, 'SciVis must be present');
+  assert.equal(scivis.regime, 'Past Peak');
+  assert.equal(scivis.peakYear, 1993);
+  assert.ok(scivis.dropFromPeak <= -0.15, `SciVis dropFromPeak should be strongly negative, got ${scivis.dropFromPeak}`);
+  assert.equal(scivis.dropInflectionYear, 2004);
+
+  const perception = momentum.find((m) => m.topicId === 'topic-4');
+  assert.ok(perception, 'Perception & Evaluation must be present');
+  assert.equal(perception.regime, 'Surging');
+  assert.ok(perception.recentDelta >= 0.025);
+  assert.ok(perception.takeoffInflectionYear !== null && perception.takeoffInflectionYear >= 2018);
+
+  const interaction = momentum.find((m) => m.topicId === 'topic-5');
+  assert.ok(interaction, 'Interaction & Toolkits must be present');
+  assert.equal(interaction.regime, 'Rebounding');
+
+  const regimes = new Set(momentum.map((m) => m.regime));
+  assert.ok(regimes.has('Surging'));
+  assert.ok(regimes.has('Past Peak'));
+  assert.ok(regimes.has('Rebounding'));
+  assert.ok(regimes.has('Steady Core'));
+
+  for (const m of momentum) {
+    assert.equal(m.smoothedSeries.length, field.streamData.length);
+    assert.ok(m.peakShare >= m.recent5Share - 0.04);
+    assert.ok(m.emergingKeywords.length >= 2 && m.emergingKeywords.length <= 3);
+    if (m.dropFromPeak <= -0.04) {
+      assert.ok(
+        m.dropInflectionYear !== null && m.dropInflectionYear > m.peakYear,
+        `${m.shortName} must have post-peak dropInflectionYear`
+      );
+    }
+  }
+});
+
+
+

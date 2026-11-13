@@ -6,11 +6,12 @@ import {
   YearlyTopicPrevalence,
 } from '../types';
 import {
+  computeTopicMomentum,
   getCorrelationBetween,
   getCorrelationEdge,
   getCorrelationGraphEdges,
 } from '../utils/analyticsLogic';
-import { ArrowUpRight, ChevronDown, ChevronUp, Grid, Network } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, ChevronUp, Grid, Network, TrendingUp } from 'lucide-react';
 
 interface StreamgraphProps {
   topics: TopicSummary[];
@@ -31,8 +32,10 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
   const [smoothingMode, setSmoothingMode] = useState<'smoothed' | 'raw'>('smoothed');
   const [startYear, setStartYear] = useState<number>(1990);
   const [hoveredTopicId, setHoveredTopicId] = useState<string | null>(null);
+  const [pinnedTopicId, setPinnedTopicId] = useState<string | null>(null);
   const [hoveredYear, setHoveredYear] = useState<number | null>(null);
   const [isPointerInsideChart, setIsPointerInsideChart] = useState<boolean>(false);
+  const [spotlightMode, setSpotlightMode] = useState<'all' | 'surging' | 'dropping'>('all');
 
   const [correlationView, setCorrelationView] = useState<'network' | 'matrix'>('network');
   const [hoveredMatrixCell, setHoveredMatrixCell] = useState<{
@@ -42,6 +45,39 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
   const [showAllBridges, setShowAllBridges] = useState<boolean>(false);
   const [correlationThreshold, setCorrelationThreshold] = useState<number>(0.2);
   const [showMethodology, setShowMethodology] = useState<boolean>(false);
+
+  const topicMomentum = useMemo(
+    () => computeTopicMomentum(topics, streamData),
+    [topics, streamData]
+  );
+  const topRisingMomentum = useMemo(() => {
+    const surging = topicMomentum.filter((m) => m.regime === 'Surging');
+    if (surging.length >= 3) return surging.slice(0, 3);
+    const seen = new Set(surging.map((m) => m.topicId));
+    const extras = topicMomentum.filter((m) => m.isRising && !seen.has(m.topicId));
+    return [...surging, ...extras].slice(0, 3);
+  }, [topicMomentum]);
+  const topRisingIdSet = useMemo(
+    () => new Set(topRisingMomentum.map((m) => m.topicId)),
+    [topRisingMomentum]
+  );
+  const droppingMomentum = useMemo(
+    () =>
+      topicMomentum
+        .filter((m) => m.regime === 'Past Peak' || (m.dropFromPeak <= -0.04 && !m.isRising))
+        .sort((a, b) => a.dropFromPeak - b.dropFromPeak),
+    [topicMomentum]
+  );
+  const droppingIdSet = useMemo(
+    () => new Set(droppingMomentum.map((m) => m.topicId)),
+    [droppingMomentum]
+  );
+  const momentumByTopicId = useMemo(
+    () => new Map(topicMomentum.map((m) => [m.topicId, m])),
+    [topicMomentum]
+  );
+
+  const activeFocusTopicId = hoveredTopicId ?? pinnedTopicId;
 
   const minStreamYear = streamData[0]?.year ?? 1990;
   const maxStreamYear = streamData[streamData.length - 1]?.year ?? 2025;
@@ -249,6 +285,260 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
     return placed;
   }, [stackedSeries, topicMap, xScale, yScale, innerWidth, innerHeight]);
 
+  // Non-overlapping 2021-2025 surge callouts & takeoff markers when "▲ Surging" is active
+  const risingCallouts = useMemo(() => {
+    if (spotlightMode !== 'surging' || topRisingMomentum.length === 0) return [];
+    const anchorYear = Math.min(maxStreamYear, Math.max(startYear, 2023));
+    const anchorX = xScale(anchorYear);
+    const boxWidth = 258;
+    const boxHeight = 38;
+    const boxX = Math.max(8, Math.min(innerWidth - boxWidth - 8, anchorX - boxWidth - 18));
+
+    const items = topRisingMomentum
+      .map((m) => {
+        const layer = stackedSeries.find((s) => s.key === m.topicId);
+        if (!layer || layer.length === 0) return null;
+        const pt =
+          layer.find((p) => p.data.year === anchorYear) ?? layer[layer.length - 1];
+        const targetY = (yScale(pt[0]) + yScale(pt[1])) / 2;
+        const takeoffPt =
+          m.takeoffInflectionYear !== null && m.takeoffInflectionYear >= startYear
+            ? layer.find((p) => p.data.year === m.takeoffInflectionYear) ?? null
+            : null;
+        return {
+          momentum: m,
+          targetX: xScale(pt.data.year),
+          targetY,
+          takeoffX: takeoffPt ? xScale(takeoffPt.data.year) : null,
+          takeoffY: takeoffPt ? (yScale(takeoffPt[0]) + yScale(takeoffPt[1])) / 2 : null,
+          boxY: Math.max(8, Math.min(innerHeight - boxHeight - 8, targetY - boxHeight / 2)),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((a, b) => a.boxY - b.boxY);
+
+    // Enforce vertical separation so callouts never overlap even in compressed years
+    const minGap = boxHeight + 10;
+    for (let i = 1; i < items.length; i++) {
+      if (items[i].boxY - items[i - 1].boxY < minGap) {
+        items[i].boxY = items[i - 1].boxY + minGap;
+      }
+    }
+    if (items.length > 0 && items[items.length - 1].boxY + boxHeight > innerHeight - 6) {
+      items[items.length - 1].boxY = innerHeight - boxHeight - 6;
+      for (let i = items.length - 2; i >= 0; i--) {
+        if (items[i + 1].boxY - items[i].boxY < minGap) {
+          items[i].boxY = Math.max(6, items[i + 1].boxY - minGap);
+        }
+      }
+    }
+
+    return items.map((item) => ({
+      ...item,
+      boxX,
+      boxWidth,
+      boxHeight,
+    }));
+  }, [
+    spotlightMode,
+    topRisingMomentum,
+    stackedSeries,
+    xScale,
+    yScale,
+    innerWidth,
+    innerHeight,
+    startYear,
+    maxStreamYear,
+  ]);
+
+  // Non-overlapping Peak & Drop-Off Inflection annotations when "▼ Dropping / Past Peak" is active
+  const droppingCallouts = useMemo(() => {
+    if (spotlightMode !== 'dropping' || droppingMomentum.length === 0) return [];
+    const boxWidth = 244;
+    const boxHeight = 38;
+
+    const rawItems = droppingMomentum
+      .map((m) => {
+        const layer = stackedSeries.find((s) => s.key === m.topicId);
+        if (!layer || layer.length === 0) return null;
+        const dropYear = m.dropInflectionYear ?? Math.min(maxStreamYear, m.peakYear + 1);
+        const anchorYr = Math.max(startYear, Math.min(maxStreamYear, dropYear));
+        const anchorPt =
+          layer.find((p) => p.data.year === anchorYr) ?? layer[layer.length - 1];
+        const targetX = xScale(anchorPt.data.year);
+        const targetY = (yScale(anchorPt[0]) + yScale(anchorPt[1])) / 2;
+
+        const peakPt =
+          m.peakYear >= startYear
+            ? layer.find((p) => p.data.year === m.peakYear) ?? null
+            : null;
+        const peakX = peakPt ? xScale(peakPt.data.year) : null;
+        const peakY = peakPt ? (yScale(peakPt[0]) + yScale(peakPt[1])) / 2 : null;
+
+        // Place box to the right of early inflections and to the left of late inflections
+        const preferRight = targetX < innerWidth * 0.56;
+        const rawBoxX = preferRight ? targetX + 18 : targetX - boxWidth - 18;
+        const boxX = Math.max(8, Math.min(innerWidth - boxWidth - 8, rawBoxX));
+
+        return {
+          momentum: m,
+          dropYear,
+          targetX,
+          targetY,
+          peakX,
+          peakY,
+          boxX,
+          boxY: Math.max(6, Math.min(innerHeight - boxHeight - 6, targetY - boxHeight / 2)),
+          boxWidth,
+          boxHeight,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((a, b) => a.boxY - b.boxY);
+
+    // 2D vertical separation for any boxes with overlapping horizontal spans
+    const minGap = boxHeight + 10;
+    for (let i = 1; i < rawItems.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const xOverlaps =
+          Math.abs(rawItems[i].boxX - rawItems[j].boxX) < boxWidth + 10;
+        if (xOverlaps && rawItems[i].boxY - rawItems[j].boxY < minGap) {
+          rawItems[i].boxY = rawItems[j].boxY + minGap;
+        }
+      }
+    }
+    if (
+      rawItems.length > 0 &&
+      rawItems[rawItems.length - 1].boxY + boxHeight > innerHeight - 6
+    ) {
+      rawItems[rawItems.length - 1].boxY = innerHeight - boxHeight - 6;
+      for (let i = rawItems.length - 2; i >= 0; i--) {
+        for (let j = rawItems.length - 1; j > i; j--) {
+          const xOverlaps =
+            Math.abs(rawItems[i].boxX - rawItems[j].boxX) < boxWidth + 10;
+          if (xOverlaps && rawItems[j].boxY - rawItems[i].boxY < minGap) {
+            rawItems[i].boxY = Math.max(6, rawItems[j].boxY - minGap);
+          }
+        }
+      }
+    }
+
+    return rawItems;
+  }, [
+    spotlightMode,
+    droppingMomentum,
+    stackedSeries,
+    xScale,
+    yScale,
+    innerWidth,
+    innerHeight,
+    startYear,
+    maxStreamYear,
+  ]);
+
+  // Vertical dashed markers + staggered top labels when hovering/pinning a single topic
+  const focusInflectionMarkers = useMemo(() => {
+    if (!activeFocusTopicId) return [];
+    const m = momentumByTopicId.get(activeFocusTopicId);
+    const layer = stackedSeries.find((s) => s.key === activeFocusTopicId);
+    if (!m || !layer || layer.length === 0) return [];
+
+    interface MarkerItem {
+      kind: 'peak' | 'drop' | 'takeoff';
+      year: number;
+      x: number;
+      dotY: number;
+      label: string;
+      badgeW: number;
+      badgeX: number;
+      badgeY: number;
+      strokeColor: string;
+      bgColor: string;
+      textColor: string;
+    }
+
+    const candidates: MarkerItem[] = [];
+    const addMarker = (
+      kind: 'peak' | 'drop' | 'takeoff',
+      year: number | null,
+      label: string,
+      strokeColor: string,
+      bgColor: string,
+      textColor: string
+    ) => {
+      if (year === null || year < startYear || year > maxStreamYear) return;
+      const pt = layer.find((p) => p.data.year === year);
+      if (!pt) return;
+      const x = xScale(year);
+      const dotY = (yScale(pt[0]) + yScale(pt[1])) / 2;
+      const badgeW = label.length * 6.1 + 16;
+      const badgeX = Math.max(4, Math.min(innerWidth - badgeW - 4, x - badgeW / 2));
+      candidates.push({
+        kind,
+        year,
+        x,
+        dotY,
+        label,
+        badgeW,
+        badgeX,
+        badgeY: 4,
+        strokeColor,
+        bgColor,
+        textColor,
+      });
+    };
+
+    addMarker(
+      'peak',
+      m.peakYear,
+      `Peak '${String(m.peakYear).slice(2)} · ${m.peakSharePct.toFixed(1)}%`,
+      m.color,
+      '#FFFFFF',
+      '#0F172A'
+    );
+
+    if (m.dropInflectionYear !== null && m.dropInflectionYear !== m.peakYear) {
+      addMarker(
+        'drop',
+        m.dropInflectionYear,
+        `Drop-off '${String(m.dropInflectionYear).slice(2)}`,
+        '#B45309',
+        '#FFFBEB',
+        '#92400E'
+      );
+    } else if (m.takeoffInflectionYear !== null && m.takeoffInflectionYear !== m.peakYear) {
+      addMarker(
+        'takeoff',
+        m.takeoffInflectionYear,
+        `Takeoff '${String(m.takeoffInflectionYear).slice(2)}`,
+        '#047857',
+        '#ECFDF5',
+        '#065F46'
+      );
+    }
+
+    // Stagger second badge downward if horizontal overlap occurs
+    candidates.sort((a, b) => a.badgeX - b.badgeX);
+    for (let i = 1; i < candidates.length; i++) {
+      const prev = candidates[i - 1];
+      const cur = candidates[i];
+      if (cur.badgeX < prev.badgeX + prev.badgeW + 6) {
+        cur.badgeY = prev.badgeY + 22;
+      }
+    }
+
+    return candidates;
+  }, [
+    activeFocusTopicId,
+    momentumByTopicId,
+    stackedSeries,
+    startYear,
+    maxStreamYear,
+    xScale,
+    yScale,
+    innerWidth,
+  ]);
+
   // D3 Force Simulation for Inter-Topic Correlation Topology
   const correlationLayout = useMemo(() => {
     const netW = 460;
@@ -383,11 +673,11 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
         aria-labelledby="streamgraph-heading"
       >
         {/* Header & Single-Line Segmented Controls */}
-        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
-          <div className="space-y-1">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
             <h2
               id="streamgraph-heading"
-              className="text-xl font-bold tracking-tight text-slate-900"
+              className="text-lg sm:text-xl font-bold tracking-tight text-slate-900"
             >
               Topic Evolution Across IEEE VIS ({startYear}–{maxStreamYear})
             </h2>
@@ -402,10 +692,10 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap xl:flex-nowrap items-center gap-1.5 shrink-0">
             {/* Scale Mode Toggle */}
             <div
-              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              className="inline-flex items-center gap-0.5 p-1 bg-slate-100 rounded-lg"
               role="group"
               aria-label="Streamgraph scale mode"
             >
@@ -413,7 +703,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 type="button"
                 data-testid="stream-mode-counts-btn"
                 onClick={() => setMetricMode('counts')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   metricMode === 'counts'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -425,19 +715,19 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 type="button"
                 data-testid="stream-mode-share-btn"
                 onClick={() => setMetricMode('prevalence')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   metricMode === 'prevalence'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Normalized Share (%)
+                Share (%)
               </button>
             </div>
 
             {/* Smoothing Toggle */}
             <div
-              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              className="inline-flex items-center gap-0.5 p-1 bg-slate-100 rounded-lg"
               role="group"
               aria-label="Streamgraph temporal smoothing"
             >
@@ -445,7 +735,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 type="button"
                 data-testid="stream-smooth-btn"
                 onClick={() => setSmoothingMode('smoothed')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   smoothingMode === 'smoothed'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -457,7 +747,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 type="button"
                 data-testid="stream-raw-btn"
                 onClick={() => setSmoothingMode('raw')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   smoothingMode === 'raw'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -469,7 +759,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
 
             {/* Time Period Selector */}
             <div
-              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              className="inline-flex items-center gap-0.5 p-1 bg-slate-100 rounded-lg"
               role="group"
               aria-label="Time window"
             >
@@ -482,7 +772,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                   key={win.yr}
                   type="button"
                   onClick={() => setStartYear(win.yr)}
-                  className={`px-2.5 py-1.5 text-xs font-mono-tabular font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-2 py-1 text-[11px] font-mono-tabular font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     startYear === win.yr
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -492,6 +782,244 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* 3-State Trajectory Spotlight Segmented Control */}
+            <div
+              className="inline-flex items-center gap-0.5 p-1 bg-slate-100 rounded-lg"
+              role="group"
+              aria-label="Trajectory spotlight mode"
+              data-testid="spotlight-segmented-control"
+            >
+              <button
+                type="button"
+                data-testid="spotlight-all-btn"
+                aria-pressed={spotlightMode === 'all'}
+                onClick={() => setSpotlightMode('all')}
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  spotlightMode === 'all'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                data-testid="spotlight-surging-btn"
+                aria-pressed={spotlightMode === 'surging'}
+                onClick={() =>
+                  setSpotlightMode((prev) => (prev === 'surging' ? 'all' : 'surging'))
+                }
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  spotlightMode === 'surging'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ▲ Surging
+              </button>
+              <button
+                type="button"
+                data-testid="spotlight-dropping-btn"
+                aria-pressed={spotlightMode === 'dropping'}
+                onClick={() =>
+                  setSpotlightMode((prev) => (prev === 'dropping' ? 'all' : 'dropping'))
+                }
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  spotlightMode === 'dropping'
+                    ? 'bg-amber-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ▼ Dropping / Past Peak
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Compact Topic Trajectory & Inflection Pill Strip (4x2 Responsive Grid) */}
+        <div className="pt-3 border-t border-slate-100 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-600">
+              Topic Trajectory &amp; Inflection Detector (1990–{maxStreamYear})
+            </span>
+            <div className="flex items-center gap-3">
+              {pinnedTopicId && (
+                <button
+                  type="button"
+                  data-testid="clear-trajectory-pin-btn"
+                  onClick={() => setPinnedTopicId(null)}
+                  className="text-[11px] font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900"
+                >
+                  Clear pinned marker
+                </button>
+              )}
+              <span className="hidden sm:inline text-slate-400">
+                Hover or click card to pin Peak &amp; Inflection markers · Click ↗ or ribbon to inspect subfield
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2"
+            data-testid="topic-momentum-strip"
+            aria-label="Topic trajectory and inflection summary cards"
+          >
+            {topicMomentum.map((m) => {
+              const isHovered = hoveredTopicId === m.topicId;
+              const isPinned = pinnedTopicId === m.topicId;
+              const isSpotlightMatch =
+                (spotlightMode === 'surging' && topRisingIdSet.has(m.topicId)) ||
+                (spotlightMode === 'dropping' && droppingIdSet.has(m.topicId));
+              const signPrefix = m.shareDeltaPct > 0 ? '+' : '';
+              const deltaText = `${m.isRising ? '▲' : '▼'} ${signPrefix}${m.shareDeltaPct.toFixed(1)}%`;
+
+              const regimeBadgeClass =
+                m.regime === 'Surging'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : m.regime === 'Rebounding'
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                  : m.regime === 'Past Peak'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-slate-100 text-slate-600 border-slate-200';
+
+              const peakYrShort = `'${String(m.peakYear).slice(2)}`;
+              const peakNowLabel =
+                m.regime === 'Surging' || m.peakYear >= 2024
+                  ? `All-time high ${peakYrShort} (${Math.round(m.peakSharePct)}%)`
+                  : m.dropFromPeak <= -0.04
+                  ? `Peak ${peakYrShort}: ${Math.round(m.peakSharePct)}% → ${Math.round(m.recentAvgSharePct)}%`
+                  : `Peak ${peakYrShort}: ${Math.round(m.peakSharePct)}% · Now ${Math.round(m.recentAvgSharePct)}%`;
+
+              // Inline SVG sparkline coordinates (56x18)
+              const sparkW = 56;
+              const sparkH = 18;
+              const series = m.smoothedSeries;
+              const maxS = Math.max(0.05, ...series.map((p) => p.share));
+              const sparkX = (idx: number) =>
+                series.length > 1 ? 2 + (idx / (series.length - 1)) * (sparkW - 4) : sparkW / 2;
+              const sparkY = (val: number) =>
+                sparkH - 2 - (val / maxS) * (sparkH - 5);
+              const sparkPath = series
+                .map((p, idx) => `${idx === 0 ? 'M' : 'L'}${sparkX(idx).toFixed(1)},${sparkY(p.share).toFixed(1)}`)
+                .join(' ');
+              const peakIdx = series.findIndex((p) => p.year === m.peakYear);
+              const infYr = m.dropInflectionYear ?? m.takeoffInflectionYear;
+              const infIdx = infYr !== null ? series.findIndex((p) => p.year === infYr) : -1;
+
+              return (
+                <div
+                  key={`mom-${m.topicId}`}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={`momentum-pill-${m.topicId}`}
+                  aria-pressed={isPinned}
+                  onMouseEnter={() => setHoveredTopicId(m.topicId)}
+                  onMouseLeave={() => setHoveredTopicId(null)}
+                  onClick={() =>
+                    setPinnedTopicId((prev) => (prev === m.topicId ? null : m.topicId))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setPinnedTopicId((prev) => (prev === m.topicId ? null : m.topicId));
+                    }
+                  }}
+                  title={`${m.shortName} (${m.regime}) · Peak ${m.peakYear} (${m.peakSharePct}%) → 2021–25 avg ${m.recentAvgSharePct}% · 5-yr shift ${signPrefix}${m.shareDeltaPct.toFixed(1)}%${m.dropInflectionYear ? ` · Drop-off onset ${m.dropInflectionYear}` : ''}${m.takeoffInflectionYear ? ` · Takeoff ${m.takeoffInflectionYear}` : ''} · Emerging: ${m.emergingKeywords.join(', ')}`}
+                  className={`group cursor-pointer rounded-md border px-2.5 py-1.5 transition-colors flex flex-col justify-between gap-1 ${
+                    isPinned
+                      ? 'border-slate-900 bg-slate-50 ring-1 ring-slate-900/15'
+                      : isHovered || isSpotlightMatch
+                      ? 'border-slate-900 bg-slate-50/70'
+                      : 'border-slate-200/90 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  {/* Row 1: Dot + Name + Regime Badge + Inline Sparkline */}
+                  <div className="flex items-center justify-between gap-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: m.color }}
+                      />
+                      <span className="text-[11px] font-semibold text-slate-900 truncate">
+                        {m.shortName}
+                      </span>
+                      <span
+                        className={`text-[9.5px] font-medium px-1.5 py-0.2 rounded border whitespace-nowrap shrink-0 ${regimeBadgeClass}`}
+                      >
+                        {m.regime}
+                      </span>
+                    </div>
+
+                    <svg
+                      width={sparkW}
+                      height={sparkH}
+                      viewBox={`0 0 ${sparkW} ${sparkH}`}
+                      className="shrink-0 overflow-visible"
+                      aria-hidden="true"
+                    >
+                      {sparkPath && (
+                        <path
+                          d={sparkPath}
+                          fill="none"
+                          stroke={m.color}
+                          strokeWidth={1.35}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+                      {peakIdx >= 0 && (
+                        <circle
+                          cx={sparkX(peakIdx)}
+                          cy={sparkY(series[peakIdx].share)}
+                          r={2.1}
+                          fill="#FFFFFF"
+                          stroke={m.color}
+                          strokeWidth={1.25}
+                        />
+                      )}
+                      {infIdx >= 0 && infIdx !== peakIdx && (
+                        <circle
+                          cx={sparkX(infIdx)}
+                          cy={sparkY(series[infIdx].share)}
+                          r={2}
+                          fill={m.dropInflectionYear ? '#D97706' : '#059669'}
+                        />
+                      )}
+                    </svg>
+                  </div>
+
+                  {/* Row 2: 5-Yr Shift + Peak->Now + Inspect Link */}
+                  <div className="flex items-center justify-between gap-1.5 text-[10.5px] font-mono-tabular">
+                    <span
+                      className={`font-semibold whitespace-nowrap ${
+                        m.isRising ? 'text-emerald-700' : 'text-slate-600'
+                      }`}
+                    >
+                      {deltaText}
+                    </span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="text-[10px] text-slate-500 truncate">
+                        {peakNowLabel}
+                      </span>
+                      <button
+                        type="button"
+                        data-testid={`inspect-topic-btn-${m.topicId}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectTopic(m.topicId);
+                        }}
+                        aria-label={`Open ${m.shortName} Topic Network`}
+                        title={`Open ${m.shortName} Topic Network`}
+                        className="p-0.5 rounded text-slate-400 hover:text-slate-900 hover:bg-slate-200/70 transition-colors shrink-0"
+                      >
+                        <ArrowUpRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -559,18 +1087,46 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 </g>
               ))}
 
+              {/* Subtle 2021-2025 Window Highlight when "▲ Surging" is active */}
+              {spotlightMode === 'surging' && !activeFocusTopicId && maxStreamYear >= 2021 && (
+                <rect
+                  x={xScale(Math.max(startYear, 2021))}
+                  y={0}
+                  width={Math.max(0, xScale(maxStreamYear) - xScale(Math.max(startYear, 2021)))}
+                  height={innerHeight}
+                  fill="#10B981"
+                  fillOpacity={0.05}
+                  stroke="#10B981"
+                  strokeOpacity={0.22}
+                  strokeDasharray="3,3"
+                  className="pointer-events-none"
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+
               {/* Smooth Stream Ribbons */}
               {stackedSeries.map((layer) => {
                 const topic = topicMap.get(layer.key);
                 if (!topic) return null;
                 const pathD = areaGenerator(layer) || '';
-                const isHighlighted = !hoveredTopicId || hoveredTopicId === topic.id;
+                const isSpotlightMatch =
+                  (spotlightMode === 'surging' && topRisingIdSet.has(topic.id)) ||
+                  (spotlightMode === 'dropping' && droppingIdSet.has(topic.id));
+                const ribbonOpacity = activeFocusTopicId
+                  ? activeFocusTopicId === topic.id
+                    ? 0.96
+                    : 0.2
+                  : spotlightMode !== 'all'
+                  ? isSpotlightMatch
+                    ? 0.96
+                    : 0.18
+                  : 0.94;
 
                 return (
                   <g
                     key={topic.id}
                     className="cursor-pointer transition-opacity duration-150"
-                    style={{ opacity: isHighlighted ? 0.94 : 0.25 }}
+                    style={{ opacity: ribbonOpacity }}
                     onMouseEnter={() => setHoveredTopicId(topic.id)}
                     onClick={() => onSelectTopic(topic.id)}
                     role="button"
@@ -587,7 +1143,12 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                       d={pathD}
                       fill={topic.color}
                       stroke="#FFFFFF"
-                      strokeWidth={hoveredTopicId === topic.id ? 2 : 1.25}
+                      strokeWidth={
+                        activeFocusTopicId === topic.id ||
+                        (spotlightMode !== 'all' && isSpotlightMatch)
+                          ? 2
+                          : 1.25
+                      }
                       strokeLinejoin="round"
                     />
                   </g>
@@ -601,7 +1162,40 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 data-testid="streamgraph-ribbon-labels"
               >
                 {ribbonLabels.map((lbl) => {
-                  const isHighlighted = !hoveredTopicId || hoveredTopicId === lbl.topicId;
+                  const isSurgingActive =
+                    spotlightMode === 'surging' && !activeFocusTopicId;
+                  const isDroppingActive =
+                    spotlightMode === 'dropping' && !activeFocusTopicId;
+
+                  const overlapsSurging =
+                    isSurgingActive &&
+                    (topRisingIdSet.has(lbl.topicId) ||
+                      risingCallouts.some(
+                        (c) =>
+                          lbl.x + lbl.w / 2 > c.boxX - 6 &&
+                          lbl.x - lbl.w / 2 < c.boxX + c.boxWidth + 6 &&
+                          lbl.y + 10 > c.boxY - 4 &&
+                          lbl.y - 10 < c.boxY + c.boxHeight + 4
+                      ));
+                  const overlapsDropping =
+                    isDroppingActive &&
+                    (droppingIdSet.has(lbl.topicId) ||
+                      droppingCallouts.some(
+                        (c) =>
+                          lbl.x + lbl.w / 2 > c.boxX - 6 &&
+                          lbl.x - lbl.w / 2 < c.boxX + c.boxWidth + 6 &&
+                          lbl.y + 10 > c.boxY - 4 &&
+                          lbl.y - 10 < c.boxY + c.boxHeight + 4
+                      ));
+                  if (overlapsSurging || overlapsDropping) return null;
+
+                  const labelOpacity = activeFocusTopicId
+                    ? activeFocusTopicId === lbl.topicId
+                      ? 1
+                      : 0.2
+                    : spotlightMode !== 'all'
+                    ? 0.2
+                    : 1;
                   return (
                     <text
                       key={`lbl-${lbl.topicId}`}
@@ -610,7 +1204,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                       dy="0.35em"
                       textAnchor="middle"
                       style={{
-                        opacity: isHighlighted ? 1 : 0.25,
+                        opacity: labelOpacity,
                         paintOrder: 'stroke fill',
                         stroke: 'rgba(15, 23, 42, 0.58)',
                         strokeWidth: '3.2px',
@@ -624,6 +1218,286 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                   );
                 })}
               </g>
+
+              {/* Single-Topic Peak & Inflection Dashed Markers (on Pill/Ribbon Hover or Pin) */}
+              {focusInflectionMarkers.length > 0 && (
+                <g
+                  className="pointer-events-none"
+                  style={{ pointerEvents: 'none' }}
+                  data-testid="trajectory-focus-markers"
+                >
+                  {focusInflectionMarkers.map((mk) => (
+                    <g key={`mk-${mk.kind}-${mk.year}`}>
+                      <line
+                        x1={mk.x}
+                        x2={mk.x}
+                        y1={mk.badgeY + 18}
+                        y2={innerHeight}
+                        stroke={mk.strokeColor}
+                        strokeWidth={1.5}
+                        strokeDasharray="4,3"
+                        strokeOpacity={0.85}
+                      />
+                      <circle
+                        cx={mk.x}
+                        cy={mk.dotY}
+                        r={5}
+                        fill={mk.kind === 'peak' ? '#FFFFFF' : mk.strokeColor}
+                        stroke={mk.strokeColor}
+                        strokeWidth={2}
+                      />
+                      <rect
+                        x={mk.badgeX}
+                        y={mk.badgeY}
+                        width={mk.badgeW}
+                        height={18}
+                        rx={4}
+                        fill={mk.bgColor}
+                        stroke={mk.strokeColor}
+                        strokeWidth={1.25}
+                      />
+                      <text
+                        x={mk.badgeX + mk.badgeW / 2}
+                        y={mk.badgeY + 12.5}
+                        textAnchor="middle"
+                        style={{ fill: mk.textColor }}
+                        className="text-[10px] font-semibold font-mono-tabular"
+                      >
+                        {mk.label}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+              )}
+
+              {/* Non-Overlapping 2021-2025 Surge Callouts & Takeoff Markers when "▲ Surging" is active */}
+              {spotlightMode === 'surging' && !activeFocusTopicId && risingCallouts.length > 0 && (
+                <g
+                  className="pointer-events-none"
+                  style={{ pointerEvents: 'none' }}
+                  data-testid="rising-trend-callouts"
+                >
+                  {risingCallouts.map((c) => {
+                    const boxRightX = c.boxX + c.boxWidth;
+                    const boxMidY = c.boxY + c.boxHeight / 2;
+                    const rawKw = c.momentum.emergingKeywords[0] ?? 'recent surge';
+                    const takeoffStr = c.momentum.takeoffInflectionYear
+                      ? `Takeoff '${String(c.momentum.takeoffInflectionYear).slice(2)} · `
+                      : '';
+                    const sublineRaw = `${c.momentum.shortName} · ${takeoffStr}${rawKw}`;
+                    const subline =
+                      sublineRaw.length > 48 ? `${sublineRaw.slice(0, 47)}…` : sublineRaw;
+                    const clipId = `callout-clip-${c.momentum.topicId}`;
+                    return (
+                      <g key={`callout-${c.momentum.topicId}`}>
+                        <defs>
+                          <clipPath id={clipId}>
+                            <rect
+                              x={c.boxX + 4}
+                              y={c.boxY + 2}
+                              width={c.boxWidth - 8}
+                              height={c.boxHeight - 4}
+                              rx={4}
+                            />
+                          </clipPath>
+                        </defs>
+                        {c.takeoffX !== null && c.takeoffY !== null && (
+                          <>
+                            <line
+                              x1={c.takeoffX}
+                              x2={c.takeoffX}
+                              y1={0}
+                              y2={innerHeight}
+                              stroke={c.momentum.color}
+                              strokeWidth={1.1}
+                              strokeDasharray="3,3"
+                              strokeOpacity={0.45}
+                            />
+                            <circle
+                              cx={c.takeoffX}
+                              cy={c.takeoffY}
+                              r={4}
+                              fill="#ECFDF5"
+                              stroke={c.momentum.color}
+                              strokeWidth={1.75}
+                            />
+                          </>
+                        )}
+                        <line
+                          x1={boxRightX}
+                          y1={boxMidY}
+                          x2={c.targetX}
+                          y2={c.targetY}
+                          stroke="#0F172A"
+                          strokeWidth={1.25}
+                          strokeDasharray="3,2"
+                          strokeOpacity={0.7}
+                        />
+                        <circle
+                          cx={c.targetX}
+                          cy={c.targetY}
+                          r={3.5}
+                          fill={c.momentum.color}
+                          stroke="#FFFFFF"
+                          strokeWidth={1.5}
+                        />
+                        <rect
+                          x={c.boxX}
+                          y={c.boxY}
+                          width={c.boxWidth}
+                          height={c.boxHeight}
+                          rx={6}
+                          fill="#FFFFFF"
+                          fillOpacity={0.97}
+                          stroke={c.momentum.color}
+                          strokeWidth={1.5}
+                        />
+                        <g clipPath={`url(#${clipId})`}>
+                          <circle
+                            cx={c.boxX + 12}
+                            cy={c.boxY + 12.5}
+                            r={3.5}
+                            fill={c.momentum.color}
+                          />
+                          <text
+                            x={c.boxX + 20}
+                            y={c.boxY + 15.5}
+                            className="text-[10.5px] font-semibold fill-slate-900"
+                          >
+                            2021–25 Surge: +{c.momentum.shareDeltaPct.toFixed(1)}% share
+                          </text>
+                          <text
+                            x={c.boxX + 10}
+                            y={c.boxY + 29}
+                            className="text-[9.5px] fill-slate-600"
+                          >
+                            {subline}
+                          </text>
+                        </g>
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
+
+              {/* Non-Overlapping Peak & Drop-Off Inflection Callouts when "▼ Dropping / Past Peak" is active */}
+              {spotlightMode === 'dropping' && !activeFocusTopicId && droppingCallouts.length > 0 && (
+                <g
+                  className="pointer-events-none"
+                  style={{ pointerEvents: 'none' }}
+                  data-testid="dropping-trend-callouts"
+                >
+                  {droppingCallouts.map((c) => {
+                    const boxMidY = c.boxY + c.boxHeight / 2;
+                    const leaderStartX =
+                      c.targetX < c.boxX ? c.boxX : c.boxX + c.boxWidth;
+                    const clipId = `drop-clip-${c.momentum.topicId}`;
+                    const peakYrShort = `'${String(c.momentum.peakYear).slice(2)}`;
+                    const dropYrShort = `'${String(c.dropYear).slice(2)}`;
+                    const line1 = `${c.momentum.shortName} (${c.momentum.dropFromPeakPct.toFixed(1)}% vs peak)`;
+                    const line2 = `Peak ${peakYrShort} (${c.momentum.peakSharePct}%) · Drop ${dropYrShort} → Now ${c.momentum.recentAvgSharePct}%`;
+
+                    return (
+                      <g key={`drop-callout-${c.momentum.topicId}`}>
+                        <defs>
+                          <clipPath id={clipId}>
+                            <rect
+                              x={c.boxX + 4}
+                              y={c.boxY + 2}
+                              width={c.boxWidth - 8}
+                              height={c.boxHeight - 4}
+                              rx={4}
+                            />
+                          </clipPath>
+                        </defs>
+                        {c.peakX !== null && c.peakY !== null && (
+                          <>
+                            <line
+                              x1={c.peakX}
+                              x2={c.peakX}
+                              y1={0}
+                              y2={innerHeight}
+                              stroke={c.momentum.color}
+                              strokeWidth={1}
+                              strokeDasharray="2,3"
+                              strokeOpacity={0.38}
+                            />
+                            <circle
+                              cx={c.peakX}
+                              cy={c.peakY}
+                              r={4}
+                              fill="#FFFFFF"
+                              stroke={c.momentum.color}
+                              strokeWidth={1.75}
+                            />
+                          </>
+                        )}
+                        <line
+                          x1={c.targetX}
+                          x2={c.targetX}
+                          y1={0}
+                          y2={innerHeight}
+                          stroke="#B45309"
+                          strokeWidth={1.15}
+                          strokeDasharray="3,3"
+                          strokeOpacity={0.5}
+                        />
+                        <line
+                          x1={leaderStartX}
+                          y1={boxMidY}
+                          x2={c.targetX}
+                          y2={c.targetY}
+                          stroke="#0F172A"
+                          strokeWidth={1.2}
+                          strokeDasharray="3,2"
+                          strokeOpacity={0.7}
+                        />
+                        <circle
+                          cx={c.targetX}
+                          cy={c.targetY}
+                          r={4}
+                          fill="#FEF3C7"
+                          stroke="#B45309"
+                          strokeWidth={1.75}
+                        />
+                        <rect
+                          x={c.boxX}
+                          y={c.boxY}
+                          width={c.boxWidth}
+                          height={c.boxHeight}
+                          rx={6}
+                          fill="#FFFFFF"
+                          fillOpacity={0.97}
+                          stroke={c.momentum.color}
+                          strokeWidth={1.5}
+                        />
+                        <g clipPath={`url(#${clipId})`}>
+                          <circle
+                            cx={c.boxX + 12}
+                            cy={c.boxY + 12.5}
+                            r={3.5}
+                            fill={c.momentum.color}
+                          />
+                          <text
+                            x={c.boxX + 20}
+                            y={c.boxY + 15.5}
+                            className="text-[10.5px] font-semibold fill-slate-900"
+                          >
+                            {line1}
+                          </text>
+                          <text
+                            x={c.boxX + 10}
+                            y={c.boxY + 29}
+                            className="text-[9.5px] fill-slate-600"
+                          >
+                            {line2}
+                          </text>
+                        </g>
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
 
               {/* Interactive Hover Crosshair */}
               {isPointerInsideChart && activeYearData && (
@@ -687,7 +1561,16 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 </span>
               </div>
               <div className="mt-1 text-[11px] text-slate-400">
-                {hoveredTopic ? 'Click ribbon to open Topic Network' : 'Hover any ribbon for details'}
+                {hoveredTopic ? (
+                  (() => {
+                    const m = momentumByTopicId.get(hoveredTopic.id);
+                    return m
+                      ? `5-yr momentum: ${m.shareDeltaPct > 0 ? '+' : ''}${m.shareDeltaPct.toFixed(1)}% · Click ribbon to inspect`
+                      : 'Click ribbon to open Topic Network';
+                  })()
+                ) : (
+                  'Hover any ribbon for details'
+                )}
               </div>
             </div>
           )}

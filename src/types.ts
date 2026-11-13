@@ -82,6 +82,7 @@ export interface PaperSummary {
   primaryTopicId: string;
   authors: AuthorBrief[];
   keywords: string[];
+  award?: string | null;
 }
 
 export interface CitationNode {
@@ -93,6 +94,7 @@ export interface CitationNode {
   relevanceScore: number;
   primaryTopicId: string;
   authors: string[];
+  award?: string | null;
   /** True when node belongs primarily to a different research topic and is pulled in via citation linkage */
   isCrossTopic?: boolean;
   x?: number;
