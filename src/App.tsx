@@ -6,6 +6,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ViewMode } from './types';
 import {
+  AUTHORS,
+  loadVispubCorpusFromPublic,
+  RAW_PAPERS,
+  TOPICS,
+} from './data/vispubCorpus';
+import {
   buildAuthorDetail,
   buildFieldOverview,
   buildPaperDetail,
@@ -22,43 +28,132 @@ import {
   PaperDetailView,
   TopicDetailView,
 } from './components/Views';
-import { Search } from 'lucide-react';
+import { AlertCircle, Loader2, RefreshCw, Search } from 'lucide-react';
 
 export default function App() {
+  const [corpusStatus, setCorpusStatus] = useState<'loading' | 'ready' | 'error'>(
+    () => (RAW_PAPERS.length > 0 ? 'ready' : 'loading')
+  );
+  const [corpusError, setCorpusError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState<number>(0);
+
   const [viewMode, setViewMode] = useState<ViewMode>('field');
-  const [selectedTopicId, setSelectedTopicId] = useState<string>('topic-5');
-  const [selectedAuthorId, setSelectedAuthorId] = useState<string>('jeffrey-heer');
-  const [selectedPaperId, setSelectedPaperId] = useState<string>('vis-2011-d3');
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [selectedAuthorId, setSelectedAuthorId] = useState<string | null>(null);
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
   const [globalQuery, setGlobalQuery] = useState<string>('');
   const [isSearchFocused, setIsSearchFocused] = useState<boolean>(false);
+  const [searchAuthorLimit, setSearchAuthorLimit] = useState<number>(8);
+  const [searchPaperLimit, setSearchPaperLimit] = useState<number>(6);
+
+  // Load real 4,008-paper Vispubdata JSON at startup
+  useEffect(() => {
+    if (RAW_PAPERS.length > 0) {
+      setCorpusStatus('ready');
+      return;
+    }
+    let cancelled = false;
+    setCorpusStatus('loading');
+    setCorpusError(null);
+
+    loadVispubCorpusFromPublic()
+      .then(() => {
+        if (!cancelled) {
+          setCorpusStatus('ready');
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const msg =
+            err instanceof Error ? err.message : 'Unable to load IEEE VIS dataset.';
+          setCorpusError(msg);
+          setCorpusStatus('error');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadNonce]);
 
   // Force window scroll to the very top whenever transitioning between tabs or navigating to a new entity view
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [viewMode, selectedTopicId, selectedAuthorId, selectedPaperId]);
 
-  // Pre-computed / API-synchronized models
-  const fieldOverview = useMemo(() => buildFieldOverview(), []);
+  useEffect(() => {
+    setSearchAuthorLimit(8);
+    setSearchPaperLimit(6);
+  }, [globalQuery]);
+
+  // Computed models strictly hydrated from the loaded 4,008-paper corpus
+  const fieldOverview = useMemo(
+    () => (corpusStatus === 'ready' ? buildFieldOverview() : null),
+    [corpusStatus]
+  );
+
+  const allAuthors = useMemo(
+    () => (corpusStatus === 'ready' ? listAllAuthors() : []),
+    [corpusStatus]
+  );
+  const allPapers = useMemo(
+    () => (corpusStatus === 'ready' ? listAllPapers('citations') : []),
+    [corpusStatus]
+  );
+
+  // Dynamically derive safe default entity IDs from the loaded corpus
+  const effectiveTopicId = useMemo(() => {
+    if (corpusStatus !== 'ready') return '';
+    if (selectedTopicId && TOPICS.some((t) => t.id === selectedTopicId)) {
+      return selectedTopicId;
+    }
+    return TOPICS.find((t) => t.id === 'topic-5')?.id ?? TOPICS[0]?.id ?? '';
+  }, [corpusStatus, selectedTopicId]);
+
+  const effectiveAuthorId = useMemo(() => {
+    if (corpusStatus !== 'ready') return '';
+    if (selectedAuthorId && AUTHORS[selectedAuthorId]) {
+      return selectedAuthorId;
+    }
+    if (AUTHORS['jeffrey-heer']) return 'jeffrey-heer';
+    return allAuthors[0]?.id ?? '';
+  }, [corpusStatus, selectedAuthorId, allAuthors]);
+
+  const effectivePaperId = useMemo(() => {
+    if (corpusStatus !== 'ready') return '';
+    if (selectedPaperId && RAW_PAPERS.some((p) => p.id === selectedPaperId)) {
+      return selectedPaperId;
+    }
+    const preferred = RAW_PAPERS.find((p) => p.id === '10.1109/tvcg.2011.185');
+    return preferred?.id ?? allPapers[0]?.id ?? '';
+  }, [corpusStatus, selectedPaperId, allPapers]);
+
   const topicDetail = useMemo(
-    () => buildTopicDetail(selectedTopicId, 'citations'),
-    [selectedTopicId]
+    () =>
+      corpusStatus === 'ready' && effectiveTopicId
+        ? buildTopicDetail(effectiveTopicId, 'citations')
+        : null,
+    [corpusStatus, effectiveTopicId]
   );
   const authorDetail = useMemo(
-    () => buildAuthorDetail(selectedAuthorId),
-    [selectedAuthorId]
+    () =>
+      corpusStatus === 'ready' && effectiveAuthorId
+        ? buildAuthorDetail(effectiveAuthorId)
+        : null,
+    [corpusStatus, effectiveAuthorId]
   );
   const paperDetail = useMemo(
-    () => buildPaperDetail(selectedPaperId),
-    [selectedPaperId]
+    () =>
+      corpusStatus === 'ready' && effectivePaperId
+        ? buildPaperDetail(effectivePaperId)
+        : null,
+    [corpusStatus, effectivePaperId]
   );
 
-  const allAuthors = useMemo(() => listAllAuthors(), []);
-  const allPapers = useMemo(() => listAllPapers('citations'), []);
-
-  // Global Omni-Search results across Topics, Authors, and Papers (case-insensitive & token-reordered)
+  // Global Omni-Search results across Topics, Authors, and Papers (case-insensitive & token-reordered, 100% unclipped)
   const searchResults = useMemo(() => {
     const q = globalQuery.trim();
-    if (!q) return null;
+    if (!q || !fieldOverview) return null;
 
     const matchedTopics = fieldOverview.topics.filter((t) =>
       matchesFlexibleQuery(
@@ -67,13 +162,10 @@ export default function App() {
       )
     );
     const matchedAuthors = filterAuthorsByQuery(allAuthors, q);
-    const matchedPapers = sortAndFilterPapers(allPapers, 'citations', q).slice(
-      0,
-      6
-    );
+    const matchedPapers = sortAndFilterPapers(allPapers, 'citations', q);
 
     return { matchedTopics, matchedAuthors, matchedPapers };
-  }, [globalQuery, fieldOverview.topics, allAuthors, allPapers]);
+  }, [globalQuery, fieldOverview, allAuthors, allPapers]);
 
   // Navigation Handlers wiring all 4 Tasks with immediate scroll-to-top
   const handleSelectTopic = (topicId: string) => {
@@ -171,7 +263,7 @@ export default function App() {
 
           {/* Zone 3: Corpus Edition Context */}
           <div className="hidden lg:flex items-center text-xs font-mono-tabular text-slate-500 shrink-0">
-            IEEE VIS 1990–2024
+            IEEE VIS {fieldOverview ? `${fieldOverview.yearRange[0]}–${fieldOverview.yearRange[1]}` : '1990–2025'}
           </div>
         </div>
 
@@ -206,20 +298,33 @@ export default function App() {
         <div className="max-w-[1400px] mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-900">
-              IEEE VIS Literature Corpus (Vispubdata 1990–2024)
+              IEEE VIS Literature Corpus (Vispubdata{' '}
+              {fieldOverview ? `${fieldOverview.yearRange[0]}–${fieldOverview.yearRange[1]}` : '1990–2025'})
             </span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono-tabular">
-              {fieldOverview.totalPapers.toLocaleString()} Total Papers ({allPapers.length} Indexed Landmarks)
-            </span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono-tabular">
-              {fieldOverview.topics.length} Core Research Subfields
-            </span>
-            <span className="text-slate-300">·</span>
-            <span className="font-mono-tabular">
-              {fieldOverview.totalCitations.toLocaleString()} CrossRef Citations
-            </span>
+            {fieldOverview ? (
+              <>
+                <span className="text-slate-300">·</span>
+                <span className="font-mono-tabular">
+                  {fieldOverview.totalPapers.toLocaleString()} Total Papers ·{' '}
+                  {fieldOverview.totalAuthors.toLocaleString()} Researchers
+                </span>
+                <span className="text-slate-300">·</span>
+                <span className="font-mono-tabular">
+                  {fieldOverview.topics.length} Core Research Subfields
+                </span>
+                <span className="text-slate-300">·</span>
+                <span className="font-mono-tabular">
+                  {fieldOverview.totalCitations.toLocaleString()} CrossRef Citations
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-300">·</span>
+                <span className="font-mono-tabular text-slate-500">
+                  {corpusStatus === 'error' ? 'Dataset unavailable' : 'Loading dataset...'}
+                </span>
+              </>
+            )}
           </div>
 
           {/* Global Omni-Search Input */}
@@ -267,10 +372,40 @@ export default function App() {
 
                 {searchResults.matchedAuthors.length > 0 && (
                   <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                      Researchers
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Researchers ({Math.min(searchAuthorLimit, searchResults.matchedAuthors.length)} of {searchResults.matchedAuthors.length})
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {searchResults.matchedAuthors.length > searchAuthorLimit && (
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSearchAuthorLimit((n) => n + 100);
+                            }}
+                            className="text-[10px] font-semibold text-blue-700 hover:underline"
+                          >
+                            Load {Math.min(100, searchResults.matchedAuthors.length - searchAuthorLimit)} More
+                          </button>
+                        )}
+                        {searchAuthorLimit > 8 && (
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSearchAuthorLimit(8);
+                            }}
+                            className="text-[10px] font-medium text-slate-500 hover:underline"
+                          >
+                            Top 8
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    {searchResults.matchedAuthors.map((a) => (
+                    {searchResults.matchedAuthors
+                      .slice(0, searchAuthorLimit)
+                      .map((a) => (
                       <button
                         key={a.id}
                         type="button"
@@ -293,10 +428,40 @@ export default function App() {
 
                 {searchResults.matchedPapers.length > 0 && (
                   <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                      Publications
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Publications ({Math.min(searchPaperLimit, searchResults.matchedPapers.length)} of {searchResults.matchedPapers.length})
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {searchResults.matchedPapers.length > searchPaperLimit && (
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSearchPaperLimit((n) => n + 100);
+                            }}
+                            className="text-[10px] font-semibold text-blue-700 hover:underline"
+                          >
+                            Load {Math.min(100, searchResults.matchedPapers.length - searchPaperLimit)} More
+                          </button>
+                        )}
+                        {searchPaperLimit > 6 && (
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSearchPaperLimit(6);
+                            }}
+                            className="text-[10px] font-medium text-slate-500 hover:underline"
+                          >
+                            Top 6
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    {searchResults.matchedPapers.map((p) => (
+                    {searchResults.matchedPapers
+                      .slice(0, searchPaperLimit)
+                      .map((p) => (
                       <button
                         key={p.id}
                         type="button"
@@ -330,46 +495,88 @@ export default function App() {
 
       {/* Main Content Stage */}
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-6 py-6">
-        {viewMode === 'field' && (
-          <Streamgraph
-            topics={fieldOverview.topics}
-            streamData={fieldOverview.streamData}
-            correlations={fieldOverview.correlations}
-            selectedTopicId={selectedTopicId}
-            onSelectTopic={handleSelectTopic}
-          />
+        {corpusStatus === 'loading' && (
+          <div
+            data-testid="corpus-loading"
+            className="bg-white border border-slate-200 rounded-lg p-12 flex flex-col items-center justify-center text-center gap-3 my-8"
+          >
+            <Loader2 className="w-7 h-7 text-blue-600 animate-spin" />
+            <div className="text-base font-semibold text-slate-900">
+              Loading IEEE VIS Literature Corpus (1990–2025)
+            </div>
+            <p className="text-xs text-slate-500 max-w-md">
+              Fetching all 4,008 real Vispubdata records, author publication histories, and internal citation links...
+            </p>
+          </div>
         )}
 
-        {viewMode === 'topic' && (
-          <TopicDetailView
-            data={topicDetail}
-            allTopics={fieldOverview.topics}
-            onSelectTopic={handleSelectTopic}
-            onSelectPaper={handleSelectPaper}
-            onSelectAuthor={handleSelectAuthor}
-            onBackToField={() => setViewMode('field')}
-          />
+        {corpusStatus === 'error' && (
+          <div
+            data-testid="corpus-error"
+            className="bg-white border border-rose-200 rounded-lg p-10 flex flex-col items-center justify-center text-center gap-3 my-8"
+          >
+            <AlertCircle className="w-7 h-7 text-rose-600" />
+            <div className="text-base font-semibold text-slate-900">
+              Failed to Load IEEE VIS Dataset
+            </div>
+            <p className="text-xs text-slate-600 max-w-lg font-mono-tabular">
+              {corpusError || 'An unexpected error occurred while fetching the Vispubdata JSON file.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => setReloadNonce((n) => n + 1)}
+              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry Loading Dataset
+            </button>
+          </div>
         )}
 
-        {viewMode === 'author' && (
-          <AuthorDetailView
-            author={authorDetail}
-            allTopics={fieldOverview.topics}
-            onSelectAuthor={handleSelectAuthor}
-            onSelectPaper={handleSelectPaper}
-            onSelectTopic={handleSelectTopic}
-            onBackToField={() => setViewMode('field')}
-          />
-        )}
+        {corpusStatus === 'ready' && fieldOverview && (
+          <>
+            {viewMode === 'field' && (
+              <Streamgraph
+                topics={fieldOverview.topics}
+                streamData={fieldOverview.streamData}
+                correlations={fieldOverview.correlations}
+                selectedTopicId={effectiveTopicId}
+                onSelectTopic={handleSelectTopic}
+              />
+            )}
 
-        {viewMode === 'paper' && (
-          <PaperDetailView
-            paper={paperDetail}
-            onSelectPaper={handleSelectPaper}
-            onSelectAuthor={handleSelectAuthor}
-            onSelectTopic={handleSelectTopic}
-            onBackToTopic={handleSelectTopic}
-          />
+            {viewMode === 'topic' && topicDetail && (
+              <TopicDetailView
+                data={topicDetail}
+                allTopics={fieldOverview.topics}
+                onSelectTopic={handleSelectTopic}
+                onSelectPaper={handleSelectPaper}
+                onSelectAuthor={handleSelectAuthor}
+                onBackToField={() => setViewMode('field')}
+              />
+            )}
+
+            {viewMode === 'author' && authorDetail && (
+              <AuthorDetailView
+                author={authorDetail}
+                allTopics={fieldOverview.topics}
+                onSelectAuthor={handleSelectAuthor}
+                onSelectPaper={handleSelectPaper}
+                onSelectTopic={handleSelectTopic}
+                onBackToField={() => setViewMode('field')}
+              />
+            )}
+
+            {viewMode === 'paper' && paperDetail && (
+              <PaperDetailView
+                paper={paperDetail}
+                onSelectPaper={handleSelectPaper}
+                onSelectAuthor={handleSelectAuthor}
+                onSelectTopic={handleSelectTopic}
+                onBackToTopic={handleSelectTopic}
+              />
+            )}
+          </>
         )}
       </main>
 

@@ -53,10 +53,14 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
   const [venueFilter, setVenueFilter] = useState<string>('ALL');
   const [minTopicFit, setMinTopicFit] = useState<number>(0);
   const [isAllPapersModalOpen, setIsAllPapersModalOpen] = useState<boolean>(false);
+  const [visibleLeadersLimit, setVisibleLeadersLimit] = useState<number>(6);
 
-  // Reset keyword search when switching topics so stale filters don't hide papers
+  // Reset all paper filters & expand state when switching topics so stale filters don't hide papers
   useEffect(() => {
     setSearchQuery('');
+    setVenueFilter('ALL');
+    setMinTopicFit(0);
+    setVisibleLeadersLimit(6);
   }, [data.topic.id]);
 
   const sortedPapers = useMemo(
@@ -196,7 +200,7 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
               >
                 <BookOpen className="w-3.5 h-3.5" />
                 <span>
-                  View Indexed Landmark Papers ({sortedPapers.length} of {data.topic.paperCount.toLocaleString()} Subfield Papers)
+                  View All Subfield Papers ({sortedPapers.length.toLocaleString()} of {data.topic.paperCount.toLocaleString()})
                 </span>
               </button>
             </div>
@@ -208,12 +212,12 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
 
           <div className="lg:col-span-4 grid grid-cols-3 gap-4 pt-4 lg:pt-0 border-t lg:border-t-0 lg:border-l border-slate-100 lg:pl-6 items-end">
             <div>
-              <div className="text-xs text-slate-500">Subfield Papers (1990–2024)</div>
+              <div className="text-xs text-slate-500">Subfield Papers (1990–2025)</div>
               <div className="text-2xl font-mono-tabular font-bold text-slate-900">
                 {data.topic.paperCount.toLocaleString()}
               </div>
               <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
-                {data.papers.length} indexed landmarks
+                100% indexed in corpus
               </div>
             </div>
             <div>
@@ -222,14 +226,14 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                 {data.topic.totalCitations.toLocaleString()}
               </div>
               <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
-                CrossRef 35-yr sum
+                CrossRef 36-yr sum
               </div>
             </div>
             <div>
               <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono-tabular mb-1">
                 <span>1990</span>
                 <span>Share</span>
-                <span>2024</span>
+                <span>2025</span>
               </div>
               <svg
                 viewBox={`0 0 ${sparkGeometry.w} ${sparkGeometry.h}`}
@@ -331,15 +335,28 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                   <span>Leading Researchers in this Topic</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Composite ranking weighting sustained output (≥3 topic papers or topic h-index) &amp; impact in {data.topic.shortName}
+                  Composite ranking weighting sustained output &amp; impact across all {data.leadingAuthors.length} contributors in {data.topic.shortName}
                 </p>
               </div>
             </div>
 
-            <div className="divide-y divide-slate-100">
-              {data.leadingAuthors.map((leader, lIdx) => (
+            <div
+              className={
+                visibleLeadersLimit > 6
+                  ? 'divide-y divide-slate-100 max-h-96 overflow-y-auto pr-1'
+                  : 'divide-y divide-slate-100'
+              }
+            >
+              {data.leadingAuthors
+                .slice(0, visibleLeadersLimit)
+                .map((leader, lIdx) => (
                 <div
                   key={leader.id}
+                  style={
+                    visibleLeadersLimit > 6
+                      ? { contentVisibility: 'auto', containIntrinsicSize: '56px' }
+                      : undefined
+                  }
                   className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
@@ -363,8 +380,7 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                   <div className="text-right shrink-0 font-mono-tabular">
                     <div className="text-xs font-semibold text-slate-900">
                       {leader.topicPaperCount} subfield{' '}
-                      {leader.topicPaperCount === 1 ? 'paper' : 'papers'} (
-                      {leader.indexedTopicPaperCount ?? leader.topicPaperCount} indexed)
+                      {leader.topicPaperCount === 1 ? 'paper' : 'papers'}
                     </div>
                     <div className="text-[11px] text-slate-500">
                       h-index {leader.hIndex} · {leader.topicCitations.toLocaleString()} subfield cites
@@ -375,8 +391,33 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
             </div>
           </div>
 
-          <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs text-slate-500">
-            <span>Click any researcher to inspect their career timeline.</span>
+          <div className="pt-3 mt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>
+              Showing {Math.min(visibleLeadersLimit, data.leadingAuthors.length)} of {data.leadingAuthors.length} contributors
+            </span>
+            <div className="flex items-center gap-2">
+              {data.leadingAuthors.length > visibleLeadersLimit && (
+                <button
+                  type="button"
+                  data-testid="toggle-all-leaders-btn"
+                  onClick={() => setVisibleLeadersLimit((n) => (n === 6 ? 100 : n + 100))}
+                  className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-md transition-colors shrink-0"
+                >
+                  {visibleLeadersLimit === 6
+                    ? `Load ${Math.min(100, data.leadingAuthors.length - 6)} More`
+                    : `Load ${Math.min(100, data.leadingAuthors.length - visibleLeadersLimit)} More`}
+                </button>
+              )}
+              {visibleLeadersLimit > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleLeadersLimit(6)}
+                  className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors shrink-0"
+                >
+                  Show Top 6
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -399,10 +440,11 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-semibold text-slate-900">
-                    Topic Literature Ranking ({sortedPapers.length} Indexed Landmarks)
+                    Topic Literature Ranking ({sortedPapers.length.toLocaleString()} Papers)
                   </h3>
                   <button
                     type="button"
+                    data-testid="expand-full-topic-table-btn"
                     onClick={() => setIsAllPapersModalOpen(true)}
                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-md transition-colors"
                   >
@@ -411,7 +453,7 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Showing top {Math.min(4, sortedPapers.length)} of {sortedPapers.length} verified landmark papers (curated from {data.topic.paperCount.toLocaleString()} total VIS papers in {data.topic.shortName})
+                  Showing top {Math.min(4, sortedPapers.length)} of {sortedPapers.length.toLocaleString()} IEEE VIS papers in {data.topic.shortName} (1990–2025)
                 </p>
               </div>
 
@@ -471,7 +513,7 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                     onChange={(e) => setMinTopicFit(Number(e.target.value))}
                     className="text-xs font-mono-tabular font-semibold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
                   >
-                    <option value="0">All (≥8%)</option>
+                    <option value="0">All (0%+)</option>
                     <option value="0.2">20%</option>
                     <option value="0.4">40%</option>
                     <option value="0.6">60%</option>
@@ -607,14 +649,14 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
           {sortedPapers.length > 0 && (
             <div className="pt-3 mt-3 border-t border-slate-200 flex items-center justify-between gap-3">
               <span className="text-xs text-slate-500 font-mono-tabular">
-                Showing {Math.min(4, sortedPapers.length)} of {sortedPapers.length} matching papers
+                Showing {Math.min(4, sortedPapers.length)} of {sortedPapers.length.toLocaleString()} matching papers
               </span>
               <button
                 type="button"
                 onClick={() => setIsAllPapersModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
               >
-                Expand Full Table ({sortedPapers.length} papers)
+                Expand Full Table ({sortedPapers.length.toLocaleString()} papers)
                 <ArrowUpRight className="w-3.5 h-3.5 text-slate-600" />
               </button>
             </div>
@@ -648,10 +690,10 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                     id="all-subfield-papers-modal-title"
                     className="text-base font-bold text-slate-900"
                   >
-                    Indexed Landmark Papers in {data.topic.name} ({sortedPapers.length} of {data.topic.paperCount.toLocaleString()} Subfield Papers)
+                    All Papers in {data.topic.name} ({sortedPapers.length.toLocaleString()} of {data.topic.paperCount.toLocaleString()})
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Curated high-impact benchmark papers with resolved citation links · Synchronized with your active Min Topic Fit threshold and sorting controls
+                    Complete 1990–2025 subfield proceedings with resolved citation links · Synchronized with your active Min Topic Fit threshold and sorting controls
                   </p>
                 </div>
               </div>
@@ -695,7 +737,7 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                     onChange={(e) => setMinTopicFit(Number(e.target.value))}
                     className="text-xs font-mono-tabular font-semibold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
                   >
-                    <option value="0">All (≥8%)</option>
+                    <option value="0">All (0%+)</option>
                     <option value="0.2">20%</option>
                     <option value="0.4">40%</option>
                     <option value="0.6">60%</option>
@@ -751,6 +793,8 @@ export const TopicDetailView: React.FC<TopicDetailViewProps> = ({
                 sortedPapers.map((paper, idx) => (
                   <div
                     key={paper.id}
+                    data-testid="all-papers-modal-row"
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '115px' }}
                     className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
                   >
                     <div className="space-y-1 max-w-3xl">
@@ -854,12 +898,17 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
   const [authorPaperSort, setAuthorPaperSort] = useState<'citations' | 'newest' | 'oldest'>('citations');
   const [authorVenueFilter, setAuthorVenueFilter] = useState<string>('ALL');
   const [authorYearFilter, setAuthorYearFilter] = useState<number | 'ALL'>('ALL');
+  const [visibleAuthorsLimit, setVisibleAuthorsLimit] = useState<number>(15);
 
   const allAuthors = useMemo(() => listAllAuthors(), []);
   const filteredAuthors = useMemo(
     () => filterAuthorsByQuery(allAuthors, authorSearch),
     [allAuthors, authorSearch]
   );
+
+  useEffect(() => {
+    setVisibleAuthorsLimit(authorSearch.trim() ? 100 : 15);
+  }, [authorSearch]);
 
   const primaryTopic = getTopicById(author.primaryTopicId);
 
@@ -1000,7 +1049,8 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               </button>
               <span className="text-slate-300">/</span>
               <h2 className="text-sm font-bold text-slate-900">
-                Top VIS Contributors · Highly Cited Researchers (Top 15)
+                Top VIS Contributors ·{' '}
+                {`Showing ${Math.min(visibleAuthorsLimit, filteredAuthors.length)} of ${filteredAuthors.length.toLocaleString()} Researchers`}
               </h2>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -1008,22 +1058,51 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             </p>
           </div>
 
-          {/* Quick Search / Filter Bar for Authors */}
-          <div className="relative w-full sm:w-80">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={authorSearch}
-              onChange={(e) => setAuthorSearch(e.target.value)}
-              placeholder="Search author (e.g. Meng Xia, Xia Meng)..."
-              aria-label="Filter prominent IEEE VIS authors"
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
-            />
+          {/* Quick Search / Filter Bar + Incremental 100-Item Directory Loader */}
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={authorSearch}
+                onChange={(e) => setAuthorSearch(e.target.value)}
+                placeholder="Search author (e.g. Meng Xia, Xia Meng)..."
+                aria-label="Filter prominent IEEE VIS authors"
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-900"
+              />
+            </div>
+            {filteredAuthors.length > visibleAuthorsLimit && (
+              <button
+                type="button"
+                data-testid="toggle-all-authors-btn"
+                onClick={() =>
+                  setVisibleAuthorsLimit((n) => (n === 15 ? 100 : n + 100))
+                }
+                className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                {visibleAuthorsLimit === 15
+                  ? `Browse Directory (Load ${Math.min(100, filteredAuthors.length - 15)} More)`
+                  : `Load ${Math.min(100, filteredAuthors.length - visibleAuthorsLimit)} More (${(filteredAuthors.length - visibleAuthorsLimit).toLocaleString()} left)`}
+              </button>
+            )}
+            {visibleAuthorsLimit > 15 && !authorSearch.trim() && (
+              <button
+                type="button"
+                onClick={() => setVisibleAuthorsLimit(15)}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                Show Top 15
+              </button>
+            )}
           </div>
         </div>
 
         <div
-          className="flex flex-wrap items-center gap-1.5"
+          className={`flex flex-wrap items-center gap-1.5 ${
+            visibleAuthorsLimit > 15
+              ? 'max-h-72 overflow-y-auto pr-1'
+              : ''
+          }`}
           data-testid="top-vis-contributors-list"
         >
           {filteredAuthors.length === 0 ? (
@@ -1038,12 +1117,19 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               </button>
             </span>
           ) : (
-            filteredAuthors.slice(0, 15).map((a, idx) => {
+            filteredAuthors
+              .slice(0, visibleAuthorsLimit)
+              .map((a, idx) => {
               const isSelected = a.id === author.id;
               return (
                 <button
                   key={a.id}
                   type="button"
+                  style={
+                    visibleAuthorsLimit > 15
+                      ? { contentVisibility: 'auto', containIntrinsicSize: '180px 30px' }
+                      : undefined
+                  }
                   onClick={() => onSelectAuthor(a.id)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-2 border ${
                     isSelected
@@ -1060,7 +1146,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                         : 'bg-white text-slate-600 border border-slate-200/80'
                     }`}
                   >
-                    🏆 {a.paperCount} VIS {a.paperCount === 1 ? 'Paper' : 'Papers'} ({a.indexedPaperCount} indexed) | ⭐{' '}
+                    🏆 {a.paperCount} VIS {a.paperCount === 1 ? 'Paper' : 'Papers'} | ⭐{' '}
                     {a.totalCitations.toLocaleString()} Citations
                   </span>
                 </button>
@@ -1129,7 +1215,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                 {author.totalPapers}
               </div>
               <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
-                {author.indexedPapers ?? author.papers.length} indexed landmarks
+                1990–2025 corpus count
               </div>
             </div>
             <div>
@@ -1138,7 +1224,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                 {author.totalCitations.toLocaleString()}
               </div>
               <div className="text-[11px] font-mono-tabular text-slate-500 mt-0.5">
-                {(author.indexedCitations ?? author.totalCitations).toLocaleString()} in landmarks
+                Across {author.totalPapers} VIS {author.totalPapers === 1 ? 'paper' : 'papers'}
               </div>
             </div>
             <div>
@@ -1162,10 +1248,10 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Indexed Landmark Publications by Topic &amp; Citation Trajectory ({author.papers.length} of {author.totalPapers} VIS Papers)
+                  IEEE VIS Publications by Topic &amp; Citation Trajectory ({author.totalPapers} VIS {author.totalPapers === 1 ? 'Paper' : 'Papers'})
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Stacked bars show indexed landmark papers per year colored by research subfield; dark line overlays annual citation impact. Hover or click any year bar to pin and inspect its papers.
+                  Stacked bars show annual publications per topic; dark line overlays annual citation impact. Hover or click any year bar to pin and inspect its papers.
                 </p>
               </div>
               <div className="flex items-center gap-4 text-xs text-slate-600 shrink-0">
@@ -1400,9 +1486,12 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               </g>
             </svg>
 
-            {/* Cumulative Career Topic Share Legend Strip */}
-            <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
-              {author.topicDistribution.slice(0, 4).map((td) => (
+            {/* Cumulative Career Topic Share Legend Strip (All Subfields Shown) */}
+            <div
+              className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5"
+              data-testid="author-topic-distribution-legend"
+            >
+              {author.topicDistribution.map((td) => (
                 <div key={td.topicId} className="flex items-center gap-2.5 text-xs">
                   <button
                     type="button"
@@ -1660,10 +1749,11 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-slate-900">
-                Indexed Landmark VIS Publications by {author.name} ({author.papers.length} of {author.totalPapers} VIS Papers)
+                IEEE VIS Publications by {author.name} ({author.papers.length} VIS {author.papers.length === 1 ? 'Paper' : 'Papers'})
               </h3>
               <button
                 type="button"
+                data-testid="expand-full-author-list-btn"
                 onClick={() => {
                   setAuthorYearFilter('ALL');
                   setIsAllAuthorPapersModalOpen(true);
@@ -1675,7 +1765,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               </button>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} verified landmark publications with full abstracts &amp; DOIs (curated from {author.totalPapers} career IEEE VIS papers)
+              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} IEEE VIS publications with abstracts &amp; DOIs
             </p>
           </div>
 
@@ -1687,7 +1777,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors shrink-0"
           >
-            View All {author.papers.length} Indexed Landmarks
+            View All {author.papers.length} Papers
             <ArrowUpRight className="w-3.5 h-3.5 text-slate-600" />
           </button>
         </div>
@@ -1762,7 +1852,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
         {author.papers.length > 0 && (
           <div className="px-5 py-3.5 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-slate-500 font-mono-tabular">
-              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} indexed landmark publications ({author.totalPapers} career IEEE VIS papers) by {author.name}
+              Showing top {Math.min(5, author.papers.length)} of {author.papers.length} IEEE VIS publications by {author.name}
             </span>
             <button
               type="button"
@@ -1772,7 +1862,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-900 bg-white border border-slate-200 hover:bg-slate-100 rounded-md shadow-2xs transition-colors"
             >
-              Expand Full List ({author.papers.length} indexed landmarks)
+              Expand Full List ({author.papers.length} papers)
               <ArrowUpRight className="w-3.5 h-3.5 text-slate-600" />
             </button>
           </div>
@@ -1806,8 +1896,8 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                     className="text-base font-bold text-slate-900"
                   >
                     {authorYearFilter === 'ALL'
-                      ? `Indexed Landmark VIS Publications by ${author.name} (${filteredModalAuthorPapers.length} of ${author.totalPapers} VIS Papers)`
-                      : `${authorYearFilter} Indexed Landmark VIS Publications by ${author.name} (${filteredModalAuthorPapers.length})`}
+                      ? `All IEEE VIS Publications by ${author.name} (${filteredModalAuthorPapers.length} of ${author.totalPapers})`
+                      : `${authorYearFilter} IEEE VIS Publications by ${author.name} (${filteredModalAuthorPapers.length})`}
                   </h2>
                   <p className="text-xs text-slate-500">
                     {author.affiliation} · Active {author.activeStartYear}–{author.activeEndYear} · {author.totalPapers} career VIS papers · {author.totalCitations.toLocaleString()} VIS citations
@@ -1945,6 +2035,8 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
                   return (
                     <div
                       key={paper.id}
+                      data-testid="author-modal-paper-row"
+                      style={{ contentVisibility: 'auto', containIntrinsicSize: '110px' }}
                       className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
                     >
                       <div className="space-y-1 max-w-3xl">

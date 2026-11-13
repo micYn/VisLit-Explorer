@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { PaperDetailResponse, PaperSummary } from '../types';
-import { getTopicById } from '../utils/analyticsLogic';
+import { PaperDetailResponse } from '../types';
+import { buildEgoNetworkCandidates, getTopicById } from '../utils/analyticsLogic';
 import { ArrowUpRight, BookOpen, Filter, GitBranch, Info, Pin, Quote } from 'lucide-react';
 
 interface PaperEgoNetworkProps {
@@ -44,7 +44,7 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
   const [relationFilter, setRelationFilter] = useState<'all' | 'reference' | 'citedBy' | 'related'>('all');
   // Graph node selection criteria controls (directly updates the D3 graph on the left)
   const [selectionMetric, setSelectionMetric] = useState<'citations' | 'recent'>('citations');
-  const [sectorLimitMode, setSectorLimitMode] = useState<'compact' | 'expanded'>('compact');
+  const [sectorLimitMode, setSectorLimitMode] = useState<'compact' | 'expanded' | 'all'>('compact');
   // Right list scope: show only plotted graph nodes vs all connected papers
   const [directoryScope, setDirectoryScope] = useState<'graphed' | 'all'>('graphed');
 
@@ -53,8 +53,10 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
   const [graphHoveredNodeId, setGraphHoveredNodeId] = useState<string | null>(null);
   const [listHoveredNodeId, setListHoveredNodeId] = useState<string | null>(null);
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
+  const [visibleDirectoryLimit, setVisibleDirectoryLimit] = useState<number>(100);
 
   const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const egoCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     setGraphHoveredNodeId(null);
@@ -62,7 +64,12 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
     setPinnedNodeId(null);
     setRelationFilter('all');
     setDirectoryScope('graphed');
+    setVisibleDirectoryLimit(100);
   }, [paper.id]);
+
+  useEffect(() => {
+    setVisibleDirectoryLimit(100);
+  }, [relationFilter, selectionMetric, sectorLimitMode, directoryScope]);
 
   // Whenever a node is hovered or clicked in the graph, scroll the right-hand list to the top
   // so the promoted #1 paper is immediately visible.
@@ -77,14 +84,26 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
   const cx = width / 2;
   const cy = height / 2;
 
-  const maxPerSector =
-    sectorLimitMode === 'compact'
-      ? relationFilter === 'all'
-        ? 6
-        : 10
-      : relationFilter === 'all'
-      ? 10
-      : 16;
+  // Build deduplicated candidates & sector lists via decoupled analyticsLogic helper
+  const candidateData = useMemo(
+    () =>
+      buildEgoNetworkCandidates(
+        paper,
+        relationFilter,
+        selectionMetric,
+        sectorLimitMode
+      ),
+    [paper, relationFilter, selectionMetric, sectorLimitMode]
+  );
+  const {
+    allUniqueCount,
+    maxPerSector,
+    refList,
+    citedByList,
+    relatedList,
+    allFilteredCandidates,
+    maxCitationCount,
+  } = candidateData;
 
   // Build ego-network nodes and links with D3 force simulation + radial sector anchors
   const {
@@ -93,7 +112,6 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
     presentTopicIds,
     sameDomainCount,
     crossDomainCount,
-    allFilteredCandidates,
   } = useMemo(() => {
     const nodeMap = new Map<string, EgoNode>();
 
@@ -116,71 +134,38 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
     };
     nodeMap.set(focalNode.id, focalNode);
 
-    const allCandidates: Array<{ summary: PaperSummary; rel: Exclude<EgoRelationType, 'focal'> }> = [];
-    if (relationFilter === 'all' || relationFilter === 'reference') {
-      for (const ref of paper.referencesPapers) {
-        allCandidates.push({ summary: ref, rel: 'reference' });
-      }
-    }
-    if (relationFilter === 'all' || relationFilter === 'citedBy') {
-      for (const cb of paper.citedByPapers) {
-        allCandidates.push({ summary: cb, rel: 'citedBy' });
-      }
-    }
-    if (relationFilter === 'all' || relationFilter === 'related') {
-      for (const relP of paper.relatedPapers) {
-        allCandidates.push({ summary: relP, rel: 'related' });
-      }
-    }
+    const totalNeighbors = refList.length + citedByList.length + relatedList.length;
+    const isDenseGraph = sectorLimitMode === 'all' && totalNeighbors > 48;
 
-    const maxCite =
-      d3.max(allCandidates, (c) => c.summary.citationCount) ||
-      paper.citationCount ||
-      1000;
     const rScale = d3
       .scaleSqrt()
-      .domain([0, maxCite])
-      .range(sectorLimitMode === 'expanded' ? [9, 18] : [11, 20]);
-
-    const compareCandidate = (
-      a: { summary: PaperSummary },
-      b: { summary: PaperSummary }
-    ) => {
-      if (selectionMetric === 'recent') {
-        return (
-          b.summary.year - a.summary.year ||
-          b.summary.citationCount - a.summary.citationCount
-        );
-      }
-      return (
-        b.summary.citationCount - a.summary.citationCount ||
-        b.summary.year - a.summary.year
+      .domain([0, maxCitationCount])
+      .range(
+        isDenseGraph
+          ? [5, 12]
+          : sectorLimitMode === 'all'
+          ? [8, 16]
+          : sectorLimitMode === 'expanded'
+          ? [9, 18]
+          : [11, 20]
       );
-    };
-
-    const refList = allCandidates
-      .filter((c) => c.rel === 'reference')
-      .sort(compareCandidate)
-      .slice(0, maxPerSector);
-    const citedByList = allCandidates
-      .filter((c) => c.rel === 'citedBy')
-      .sort(compareCandidate)
-      .slice(0, maxPerSector);
-    const relatedList = allCandidates
-      .filter((c) => c.rel === 'related')
-      .sort(compareCandidate)
-      .slice(0, relationFilter === 'related' ? maxPerSector : Math.min(6, maxPerSector));
 
     const addSectorNodes = (
-      items: Array<{ summary: PaperSummary; rel: Exclude<EgoRelationType, 'focal'> }>,
+      items: typeof refList,
       angles: number[],
       distX: number,
       distY: number
     ) => {
       items.forEach((item, idx) => {
         if (nodeMap.has(item.summary.id)) return;
-        const angle = angles[idx % angles.length];
-        const ringOffset = idx >= angles.length ? 1.18 : 1.0;
+        const baseAngle = angles[idx % angles.length];
+        const ringTier = Math.floor(idx / angles.length);
+        // Slightly stagger angles across concentric rings and cap outward growth inside the canvas
+        const angleJitter = isDenseGraph ? ((ringTier % 2 === 0 ? 1 : -1) * 0.08 * ((idx % 5) - 2)) : 0;
+        const angle = baseAngle + angleJitter;
+        const ringOffset = isDenseGraph
+          ? Math.min(1.65, 0.72 + ringTier * 0.09)
+          : 1.0 + ringTier * 0.22;
         const targetX = cx + Math.cos(angle) * distX * ringOffset;
         const targetY = cy + Math.sin(angle) * distY * ringOffset;
         nodeMap.set(item.summary.id, {
@@ -219,54 +204,79 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
     // Top & Bottom arcs for Conceptual Neighbors (around -PI/2 and +PI/2)
     addSectorNodes(
       relatedList,
-      [
-        -Math.PI / 2,
-        Math.PI / 2,
-        -Math.PI / 2 - 0.46,
-        Math.PI / 2 + 0.46,
-        -Math.PI / 2 + 0.46,
-        Math.PI / 2 - 0.46,
-      ],
-      185,
-      150
+      isDenseGraph
+        ? [
+            -Math.PI / 2,
+            Math.PI / 2,
+            -Math.PI / 2 - 0.35,
+            Math.PI / 2 + 0.35,
+            -Math.PI / 2 + 0.35,
+            Math.PI / 2 - 0.35,
+            -Math.PI / 2 - 0.68,
+            Math.PI / 2 + 0.68,
+            -Math.PI / 2 + 0.68,
+            Math.PI / 2 - 0.68,
+          ]
+        : [
+            -Math.PI / 2,
+            Math.PI / 2,
+            -Math.PI / 2 - 0.46,
+            Math.PI / 2 + 0.46,
+            -Math.PI / 2 + 0.46,
+            Math.PI / 2 - 0.46,
+          ],
+      isDenseGraph ? 210 : 185,
+      isDenseGraph ? 132 : 150
     );
 
     const nodesArr = Array.from(nodeMap.values());
+    const isUltraDense = nodesArr.length > 200;
     const targetPos = new Map(nodesArr.map((n) => [n.id, { x: n.x, y: n.y }]));
 
-    const collidePad = sectorLimitMode === 'expanded' ? 24 : 32;
+    const collidePad =
+      isDenseGraph ? 3 : sectorLimitMode === 'all' ? 10 : sectorLimitMode === 'expanded' ? 22 : 32;
 
     // Run D3 collision & spring layout while keeping the focal paper locked at the exact center
     const simulation = d3
       .forceSimulation<EgoNode>(nodesArr)
       .force(
         'x',
-        d3.forceX<EgoNode>((d) => targetPos.get(d.id)?.x ?? cx).strength(0.65)
+        d3.forceX<EgoNode>((d) => targetPos.get(d.id)?.x ?? cx).strength(isDenseGraph ? 0.45 : 0.65)
       )
       .force(
         'y',
-        d3.forceY<EgoNode>((d) => targetPos.get(d.id)?.y ?? cy).strength(0.65)
+        d3.forceY<EgoNode>((d) => targetPos.get(d.id)?.y ?? cy).strength(isDenseGraph ? 0.45 : 0.65)
       )
-      .force('charge', d3.forceManyBody<EgoNode>().strength(sectorLimitMode === 'expanded' ? -190 : -260))
       .force(
         'collide',
         d3
           .forceCollide<EgoNode>()
           .radius((d) => d.radius + collidePad)
           .strength(0.98)
-          .iterations(4)
+          .iterations(isUltraDense ? 2 : 4)
       )
       .stop();
 
-    for (let i = 0; i < 160; i++) {
+    if (!isUltraDense) {
+      simulation.force(
+        'charge',
+        d3
+          .forceManyBody<EgoNode>()
+          .strength(isDenseGraph ? -28 : sectorLimitMode === 'all' ? -110 : sectorLimitMode === 'expanded' ? -190 : -260)
+      );
+    }
+
+    const tickCount = isUltraDense ? 40 : isDenseGraph ? 100 : 160;
+    for (let i = 0; i < tickCount; i++) {
       simulation.tick();
       for (const n of nodesArr) {
         if (n.id === paper.id) {
           n.x = cx;
           n.y = cy;
         } else {
-          n.x = Math.max(68, Math.min(width - 68, n.x));
-          n.y = Math.max(44, Math.min(height - 44, n.y));
+          n.x = Math.max(46, Math.min(width - 46, n.x));
+          // Keep top margin clear of sector header labels at y=24
+          n.y = Math.max(58, Math.min(height - 34, n.y));
         }
       }
     }
@@ -313,25 +323,14 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
       }
     }
 
-    // Deduplicate allCandidates by paper id and sort according to selectionMetric
-    const seenIds = new Set<string>();
-    const dedupedCandidates = allCandidates
-      .filter((c) => {
-        if (c.summary.id === paper.id || seenIds.has(c.summary.id)) return false;
-        seenIds.add(c.summary.id);
-        return true;
-      })
-      .sort(compareCandidate);
-
     return {
       egoNodes: nodesArr,
       egoLinks: linksArr,
       presentTopicIds: Array.from(topicSet),
       sameDomainCount: sameCnt,
       crossDomainCount: crossCnt,
-      allFilteredCandidates: dedupedCandidates,
     };
-  }, [paper, relationFilter, selectionMetric, sectorLimitMode, cx, cy, maxPerSector]);
+  }, [paper, refList, citedByList, relatedList, maxCitationCount, sectorLimitMode, cx, cy]);
 
   const plottedNeighborNodes = useMemo(
     () => egoNodes.filter((n) => n.id !== paper.id),
@@ -382,10 +381,216 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
     ];
   }, [allFilteredCandidates, directoryScope, plottedNodeIdSet, promotedPaperId]);
 
+  const useEgoCanvas = egoNodes.length > 200;
+
+  // High-DPI HTML5 Canvas renderer for dense (>200-node) Ego Networks so "All Connections" renders smoothly without SVG DOM bloat
+  useEffect(() => {
+    if (!useEgoCanvas) return;
+    const canvas = egoCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Sector Backdrop Header Labels
+    ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#1D4ED8';
+    ctx.fillText(
+      `← FOUNDATIONAL REFERENCES (${Math.min(maxPerSector, paper.referencesPapers.length)} OF ${paper.referencesPapers.length})`,
+      118,
+      24
+    );
+    ctx.fillStyle = '#7E22CE';
+    ctx.fillText('CONCEPTUAL NEIGHBORS', width / 2, 24);
+    ctx.fillStyle = '#047857';
+    ctx.fillText(
+      `CITED BY IN VIS (${Math.min(maxPerSector, paper.citedByPapers.length)} OF ${paper.citedByPapers.length}) →`,
+      width - 118,
+      24
+    );
+
+    // 2. Ego-Network Links (non-highlighted first, hovered/pinned on top)
+    const drawLinks = (highlightedPass: boolean) => {
+      for (const link of egoLinks) {
+        const isRelated = link.relation === 'related';
+        const isHovered =
+          activeGraphFocusId === link.source.id || activeGraphFocusId === link.target.id;
+        if (highlightedPass !== isHovered) continue;
+
+        ctx.save();
+        ctx.beginPath();
+        if (isRelated) {
+          ctx.setLineDash([4, 4]);
+          ctx.moveTo(link.source.x, link.source.y);
+          ctx.lineTo(link.target.x, link.target.y);
+        } else {
+          const sx = link.source.x;
+          const sy = link.source.y;
+          const tx = link.target.x;
+          const ty = link.target.y;
+          const mx = (sx + tx) / 2;
+          const my = (sy + ty) / 2;
+          const dx = tx - sx;
+          const dy = ty - sy;
+          const cpx = mx - dy * 0.16;
+          const cpy = my + dx * 0.16;
+          ctx.moveTo(sx, sy);
+          ctx.quadraticCurveTo(cpx, cpy, tx, ty);
+        }
+        ctx.strokeStyle = isHovered ? '#0F172A' : isRelated ? '#9333EA' : '#475569';
+        ctx.lineWidth = isHovered ? 2.0 : 1.0;
+        ctx.globalAlpha = isHovered ? 0.92 : isRelated ? 0.25 : 0.42;
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+    drawLinks(false);
+    drawLinks(true);
+
+    // 3. Nodes ordered so focal, pinned, and hovered render on top
+    const labeledSet = new Set<string>([paper.id]);
+    if (activeGraphFocusId) labeledSet.add(activeGraphFocusId);
+    if (pinnedNodeId) labeledSet.add(pinnedNodeId);
+    const topLandmarkNeighbors = [...egoNodes]
+      .filter((n) => n.relation !== 'focal')
+      .sort((a, b) => b.citationCount - a.citationCount)
+      .slice(0, 12);
+    for (const n of topLandmarkNeighbors) labeledSet.add(n.id);
+
+    const orderedNodes = [...egoNodes].sort((a, b) => {
+      const score = (n: EgoNode) =>
+        n.id === activeGraphFocusId
+          ? 4
+          : n.id === pinnedNodeId
+          ? 3
+          : n.relation === 'focal'
+          ? 2
+          : labeledSet.has(n.id)
+          ? 1
+          : 0;
+      return score(a) - score(b);
+    });
+
+    for (const node of orderedNodes) {
+      const nodeTopic = getTopicById(node.primaryTopicId);
+      const isFocal = node.relation === 'focal';
+      const isSameDomain = node.primaryTopicId === paper.primaryTopicId;
+      const isHovered = activeGraphFocusId === node.id;
+      const isPinned = pinnedNodeId === node.id;
+
+      if (isFocal || isPinned) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = isPinned ? '#2563EB' : '#0F172A';
+        ctx.lineWidth = 2;
+        if (isFocal) ctx.setLineDash([3, 2]);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.globalAlpha = isFocal ? 1 : isSameDomain ? 0.94 : 0.78;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+      ctx.fillStyle = nodeTopic.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = isFocal || isHovered || isPinned ? 2.2 : 1.1;
+      ctx.strokeStyle = isFocal || isHovered || isPinned ? '#0F172A' : '#FFFFFF';
+      ctx.stroke();
+      ctx.restore();
+
+      if (node.radius >= 8.5 || isHovered || isPinned || isFocal) {
+        ctx.save();
+        ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#FFFFFF';
+        const countLabel =
+          node.citationCount >= 1000
+            ? `${(node.citationCount / 1000).toFixed(1)}k`
+            : String(node.citationCount);
+        ctx.fillText(countLabel, node.x, node.y);
+        ctx.restore();
+      }
+    }
+
+    // 4. Outer labels for focal, active, pinned, and top 12 landmark neighbors
+    for (const node of orderedNodes) {
+      if (!labeledSet.has(node.id)) continue;
+      const isFocal = node.relation === 'focal';
+      const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
+      const shortLabel = isFocal
+        ? `${lastName} '${String(node.year).slice(-2)} (This Paper)`
+        : `${lastName} '${String(node.year).slice(-2)}${
+            node.relation === 'reference'
+              ? ' · Ref'
+              : node.relation === 'citedBy'
+              ? ' · Cites'
+              : ' · Sim'
+          }`;
+
+      ctx.save();
+      ctx.font = isFocal
+        ? '700 11px ui-monospace, SFMono-Regular, Menlo, monospace'
+        : '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3.5;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#FFFFFF';
+      const labelY = node.y + node.radius + (isFocal ? 16 : 13);
+      ctx.strokeText(shortLabel, node.x, labelY);
+      ctx.fillStyle = '#0F172A';
+      ctx.fillText(shortLabel, node.x, labelY);
+      ctx.restore();
+    }
+  }, [
+    useEgoCanvas,
+    egoNodes,
+    egoLinks,
+    activeGraphFocusId,
+    pinnedNodeId,
+    paper.id,
+    paper.primaryTopicId,
+    paper.referencesPapers.length,
+    paper.citedByPapers.length,
+    maxPerSector,
+    width,
+    height,
+  ]);
+
+  const hitTestEgoCanvasNode = (e: React.MouseEvent<HTMLCanvasElement>): EgoNode | null => {
+    const canvas = egoCanvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * width;
+    const y = ((e.clientY - rect.top) / rect.height) * height;
+
+    let bestNode: EgoNode | null = null;
+    let bestDist = Infinity;
+    for (const node of egoNodes) {
+      const dx = x - node.x;
+      const dy = y - node.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= node.radius + 6 && dist < bestDist) {
+        bestDist = dist;
+        bestNode = node;
+      }
+    }
+    return bestNode;
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
       {/* Header & Relation Filter Controls */}
-      <div className="flex flex-col lg:flex-row lg:flex-nowrap lg:items-start lg:justify-between gap-4">
+      <div className="flex flex-col xl:flex-row xl:flex-nowrap xl:items-start xl:justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-bold text-slate-900 whitespace-nowrap">
@@ -412,7 +617,7 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            All Connections ({paper.referencesPapers.length + paper.citedByPapers.length + paper.relatedPapers.length})
+            All Connections ({allUniqueCount})
           </button>
           <button
             type="button"
@@ -493,14 +698,47 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
 
       {/* Main Split: D3 Ego-Network Canvas (Left 8 cols) + Graph Selection Criteria & Dynamic Paper List (Right 4 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        <div className="lg:col-span-8 border border-slate-100 bg-slate-50/50 rounded-md overflow-hidden flex items-center justify-center">
-          <svg
-            viewBox={`0 0 ${width} ${height}`}
-            className="w-full h-auto select-none"
-            role="img"
-            aria-label={`Local citation ego-network graph centered on ${paper.title}`}
-            data-testid="paper-ego-network-svg"
-          >
+        <div className="lg:col-span-8 border border-slate-100 bg-slate-50/50 rounded-md overflow-hidden flex items-center justify-center relative">
+          {useEgoCanvas ? (
+            <>
+              <canvas
+                ref={egoCanvasRef}
+                data-testid="paper-ego-network-canvas"
+                aria-label={`Local citation ego-network canvas centered on ${paper.title} (${egoNodes.length} nodes)`}
+                className="w-full h-auto select-none cursor-pointer"
+                onMouseMove={(e) => {
+                  const hit = hitTestEgoCanvasNode(e);
+                  const nextHover = hit && hit.relation !== 'focal' ? hit.id : null;
+                  if (nextHover !== graphHoveredNodeId) {
+                    setGraphHoveredNodeId(nextHover);
+                  }
+                }}
+                onMouseLeave={() => setGraphHoveredNodeId(null)}
+                onClick={(e) => {
+                  const hit = hitTestEgoCanvasNode(e);
+                  if (hit && hit.relation !== 'focal') {
+                    setPinnedNodeId((prev) => (prev === hit.id ? null : hit.id));
+                  }
+                }}
+                onDoubleClick={(e) => {
+                  const hit = hitTestEgoCanvasNode(e);
+                  if (hit && hit.relation !== 'focal') {
+                    onSelectPaper(hit.id);
+                  }
+                }}
+              />
+              <span className="absolute bottom-2 left-2.5 px-2 py-0.5 text-[10px] font-mono-tabular text-slate-600 bg-white/90 border border-slate-200 rounded pointer-events-none">
+                Canvas High-Density Mode ({egoNodes.length} nodes · click node to pin, double-click to open)
+              </span>
+            </>
+          ) : (
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              className="w-full h-auto select-none"
+              role="img"
+              aria-label={`Local citation ego-network graph centered on ${paper.title}`}
+              data-testid="paper-ego-network-svg"
+            >
             {/* Dynamic per-node SVG markers with exact target radius refX so arrowheads stop at the circle edge */}
             <defs>
               {egoNodes.map((node) => {
@@ -606,117 +844,156 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
               );
             })}
 
-            {/* Ego-Network Nodes */}
-            {egoNodes.map((node) => {
-              const nodeTopic = getTopicById(node.primaryTopicId);
-              const isFocal = node.relation === 'focal';
-              const isSameDomain = node.primaryTopicId === paper.primaryTopicId;
-              const isHovered = activeGraphFocusId === node.id;
-              const isPinned = pinnedNodeId === node.id;
+            {/* Ego-Network Nodes (render regular nodes first, then labeled/hovered/pinned/focal on top) */}
+            {(() => {
+              const denseMode = egoNodes.length > 36;
+              const labeledSet = new Set<string>([paper.id]);
+              if (activeGraphFocusId) labeledSet.add(activeGraphFocusId);
+              if (pinnedNodeId) labeledSet.add(pinnedNodeId);
+              if (!denseMode) {
+                for (const n of egoNodes) labeledSet.add(n.id);
+              } else {
+                const topLandmarkNeighbors = [...egoNodes]
+                  .filter((n) => n.relation !== 'focal')
+                  .sort((a, b) => b.citationCount - a.citationCount)
+                  .slice(0, 12);
+                for (const n of topLandmarkNeighbors) labeledSet.add(n.id);
+              }
 
-              const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
-              const shortLabel = isFocal
-                ? `${lastName} '${String(node.year).slice(-2)} (This Paper)`
-                : `${lastName} '${String(node.year).slice(-2)}`;
+              const orderedNodes = [...egoNodes].sort((a, b) => {
+                const score = (n: EgoNode) =>
+                  n.id === activeGraphFocusId
+                    ? 4
+                    : n.id === pinnedNodeId
+                    ? 3
+                    : n.relation === 'focal'
+                    ? 2
+                    : labeledSet.has(n.id)
+                    ? 1
+                    : 0;
+                return score(a) - score(b);
+              });
 
-              const relationBadge =
-                node.relation === 'reference'
-                  ? 'Ref'
-                  : node.relation === 'citedBy'
-                  ? 'Cites'
-                  : node.relation === 'related'
-                  ? 'Sim'
-                  : '';
+              return orderedNodes.map((node) => {
+                const nodeTopic = getTopicById(node.primaryTopicId);
+                const isFocal = node.relation === 'focal';
+                const isSameDomain = node.primaryTopicId === paper.primaryTopicId;
+                const isHovered = activeGraphFocusId === node.id;
+                const isPinned = pinnedNodeId === node.id;
+                const showOuterLabel = labeledSet.has(node.id);
+                const showInnerCount = !denseMode || node.radius >= 8.5 || isHovered || isPinned || isFocal;
 
-              return (
-                <g
-                  key={node.id}
-                  transform={`translate(${node.x}, ${node.y})`}
-                  className="cursor-pointer"
-                  onMouseEnter={() => {
-                    if (!isFocal) setGraphHoveredNodeId(node.id);
-                  }}
-                  onMouseLeave={() => {
-                    if (!isFocal) setGraphHoveredNodeId(null);
-                  }}
-                  onClick={() => {
-                    if (!isFocal) {
-                      setPinnedNodeId((prev) => (prev === node.id ? null : node.id));
-                    }
-                  }}
-                  onDoubleClick={() => {
-                    if (!isFocal) onSelectPaper(node.id);
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${isFocal ? 'Current paper' : `Pin ${node.relation} paper`} ${node.title}`}
-                  onKeyDown={(e) => {
-                    if ((e.key === 'Enter' || e.key === ' ') && !isFocal) {
-                      e.preventDefault();
-                      setPinnedNodeId((prev) => (prev === node.id ? null : node.id));
-                    }
-                  }}
-                >
-                  {/* Enlarged invisible hitbox circle to prevent hover flickering */}
-                  <circle r={node.radius + 12} fill="transparent" opacity={0} />
+                const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
+                const shortLabel = isFocal
+                  ? `${lastName} '${String(node.year).slice(-2)} (This Paper)`
+                  : `${lastName} '${String(node.year).slice(-2)}`;
 
-                  {/* Outer focal halo ring for the center paper or pinned neighbor */}
-                  {(isFocal || isPinned) && (
-                    <circle
-                      r={node.radius + 5}
-                      fill="none"
-                      stroke={isPinned ? '#2563EB' : '#0F172A'}
-                      strokeWidth={2}
-                      strokeDasharray={isFocal ? '3,2' : undefined}
-                      className="pointer-events-none"
-                    />
-                  )}
+                const relationBadge =
+                  node.relation === 'reference'
+                    ? 'Ref'
+                    : node.relation === 'citedBy'
+                    ? 'Cites'
+                    : node.relation === 'related'
+                    ? 'Sim'
+                    : '';
 
-                  {/* Node Circle Colored Strictly by Assigned Research Topic */}
-                  <circle
-                    r={node.radius}
-                    fill={nodeTopic.color}
-                    fillOpacity={isFocal ? 1 : isSameDomain ? 0.94 : 0.78}
-                    stroke={isFocal || isHovered || isPinned ? '#0F172A' : '#FFFFFF'}
-                    strokeWidth={isFocal || isHovered || isPinned ? 2.75 : 2}
-                  />
-
-                  {/* Inside Citation Count */}
-                  <text
-                    dy="0.35em"
-                    textAnchor="middle"
-                    style={{ pointerEvents: 'none' }}
-                    className="text-[9px] font-mono-tabular font-semibold fill-white pointer-events-none"
-                  >
-                    {node.citationCount >= 1000
-                      ? `${(node.citationCount / 1000).toFixed(1)}k`
-                      : node.citationCount}
-                  </text>
-
-                  {/* Halo-Outlined Label Beneath Circle */}
-                  <text
-                    y={node.radius + (isFocal ? 17 : 13)}
-                    textAnchor="middle"
-                    style={{
-                      paintOrder: 'stroke fill',
-                      stroke: '#ffffff',
-                      strokeWidth: '3.5px',
-                      strokeLinejoin: 'round',
-                      pointerEvents: 'none',
+                return (
+                  <g
+                    key={node.id}
+                    transform={`translate(${node.x}, ${node.y})`}
+                    className="cursor-pointer"
+                    onMouseEnter={() => {
+                      if (!isFocal) setGraphHoveredNodeId(node.id);
                     }}
-                    className={`font-mono-tabular pointer-events-none ${
-                      isFocal
-                        ? 'text-[11px] font-bold fill-slate-950'
-                        : 'text-[10px] font-semibold fill-slate-900'
-                    }`}
+                    onMouseLeave={() => {
+                      if (!isFocal) setGraphHoveredNodeId(null);
+                    }}
+                    onClick={() => {
+                      if (!isFocal) {
+                        setPinnedNodeId((prev) => (prev === node.id ? null : node.id));
+                      }
+                    }}
+                    onDoubleClick={() => {
+                      if (!isFocal) onSelectPaper(node.id);
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${isFocal ? 'Current paper' : `Pin ${node.relation} paper`} ${node.title}`}
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ' ') && !isFocal) {
+                        e.preventDefault();
+                        setPinnedNodeId((prev) => (prev === node.id ? null : node.id));
+                      }
+                    }}
                   >
-                    {shortLabel}
-                    {relationBadge ? ` · ${relationBadge}` : ''}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+                    <title>{`${node.title} (${node.year}) · ${node.citationCount} citations`}</title>
+
+                    {/* Enlarged invisible hitbox circle to prevent hover flickering */}
+                    <circle r={node.radius + (denseMode ? 4 : 12)} fill="transparent" opacity={0} />
+
+                    {/* Outer focal halo ring for the center paper or pinned neighbor */}
+                    {(isFocal || isPinned) && (
+                      <circle
+                        r={node.radius + 5}
+                        fill="none"
+                        stroke={isPinned ? '#2563EB' : '#0F172A'}
+                        strokeWidth={2}
+                        strokeDasharray={isFocal ? '3,2' : undefined}
+                        className="pointer-events-none"
+                      />
+                    )}
+
+                    {/* Node Circle Colored Strictly by Assigned Research Topic */}
+                    <circle
+                      r={node.radius}
+                      fill={nodeTopic.color}
+                      fillOpacity={isFocal ? 1 : isSameDomain ? 0.94 : 0.78}
+                      stroke={isFocal || isHovered || isPinned ? '#0F172A' : '#FFFFFF'}
+                      strokeWidth={isFocal || isHovered || isPinned ? 2.5 : denseMode ? 1.25 : 2}
+                    />
+
+                    {/* Inside Citation Count */}
+                    {showInnerCount && (
+                      <text
+                        dy="0.35em"
+                        textAnchor="middle"
+                        style={{ pointerEvents: 'none' }}
+                        className="text-[9px] font-mono-tabular font-semibold fill-white pointer-events-none"
+                      >
+                        {node.citationCount >= 1000
+                          ? `${(node.citationCount / 1000).toFixed(1)}k`
+                          : node.citationCount}
+                      </text>
+                    )}
+
+                    {/* Halo-Outlined Label Beneath Circle (shown for focal, hovered/pinned, or top landmarks when dense) */}
+                    {showOuterLabel && (
+                      <text
+                        y={node.radius + (isFocal ? 17 : 13)}
+                        textAnchor="middle"
+                        style={{
+                          paintOrder: 'stroke fill',
+                          stroke: '#ffffff',
+                          strokeWidth: '3.5px',
+                          strokeLinejoin: 'round',
+                          pointerEvents: 'none',
+                        }}
+                        className={`font-mono-tabular pointer-events-none ${
+                          isFocal
+                            ? 'text-[11px] font-bold fill-slate-950'
+                            : 'text-[10px] font-semibold fill-slate-900'
+                        }`}
+                      >
+                        {shortLabel}
+                        {relationBadge ? ` · ${relationBadge}` : ''}
+                      </text>
+                    )}
+                  </g>
+                );
+              });
+            })()}
+            </svg>
+          )}
         </div>
 
         {/* Right 4 Cols: Graph Node Selection Criteria Controls + Synchronized Paper List */}
@@ -738,7 +1015,7 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
             </p>
 
             {/* Controls that directly update the D3 Graph on the left */}
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="space-y-1.5">
               <div className="flex items-center p-0.5 bg-slate-100 rounded">
                 <button
                   type="button"
@@ -785,7 +1062,19 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Top {relationFilter === 'all' ? 10 : 16}/Sector
+                  Top {relationFilter === 'all' ? 12 : 20}/Sector
+                </button>
+                <button
+                  type="button"
+                  data-testid="ego-sector-all-btn"
+                  onClick={() => setSectorLimitMode('all')}
+                  className={`flex-1 py-1 px-1.5 text-[11px] font-medium rounded transition-colors whitespace-nowrap ${
+                    sectorLimitMode === 'all'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All ({allFilteredCandidates.length})
                 </button>
               </div>
             </div>
@@ -826,7 +1115,7 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
             className="h-[295px] min-h-[295px] max-h-[295px] overflow-y-auto divide-y divide-slate-200/80 pr-1"
             data-testid="ego-network-paper-list"
           >
-            {directoryItems.map(({ summary: item, rel }, idx) => {
+            {directoryItems.slice(0, visibleDirectoryLimit).map(({ summary: item, rel }, idx) => {
               const nTopic = getTopicById(item.primaryTopicId);
               const isSame = item.primaryTopicId === paper.primaryTopicId;
               const isPlotted = plottedNodeIdSet.has(item.id);
@@ -948,6 +1237,21 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
                 </div>
               );
             })}
+            {directoryItems.length > visibleDirectoryLimit && (
+              <div className="pt-2.5 pb-1 px-1 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleDirectoryLimit((prev) =>
+                      Math.min(directoryItems.length, prev + 100)
+                    )
+                  }
+                  className="w-full px-2.5 py-1.5 text-[11px] font-mono-tabular font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition-colors"
+                >
+                  Load 100 More ({directoryItems.length - visibleDirectoryLimit} remaining of {directoryItems.length})
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

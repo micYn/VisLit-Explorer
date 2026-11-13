@@ -5,8 +5,12 @@ import {
   TopicSummary,
   YearlyTopicPrevalence,
 } from '../types';
-import { getCorrelationBetween } from '../utils/analyticsLogic';
-import { ArrowUpRight, GitCompare, Grid, Info, Network } from 'lucide-react';
+import {
+  getCorrelationBetween,
+  getCorrelationEdge,
+  getCorrelationGraphEdges,
+} from '../utils/analyticsLogic';
+import { ArrowUpRight, ChevronDown, ChevronUp, Grid, Network } from 'lucide-react';
 
 interface StreamgraphProps {
   topics: TopicSummary[];
@@ -22,80 +26,145 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
   correlations,
   onSelectTopic,
 }) => {
-  // Default state loads on 'counts' = Research Volume (Total Papers)
+  // Default to Paper Count silhouette (narrower early years, wider recent years) + 3-Year Rolling Smoothing
   const [metricMode, setMetricMode] = useState<'prevalence' | 'counts'>('counts');
+  const [smoothingMode, setSmoothingMode] = useState<'smoothed' | 'raw'>('smoothed');
   const [startYear, setStartYear] = useState<number>(1990);
   const [hoveredTopicId, setHoveredTopicId] = useState<string | null>(null);
-  const [hoveredYear, setHoveredYear] = useState<number | null>(2022);
-  const [correlationView, setCorrelationView] = useState<'network' | 'matrix'>('network');
-  const [showShareTooltip, setShowShareTooltip] = useState<boolean>(false);
+  const [hoveredYear, setHoveredYear] = useState<number | null>(null);
+  const [isPointerInsideChart, setIsPointerInsideChart] = useState<boolean>(false);
 
-  const activeHighlightTopicId = hoveredTopicId;
+  const [correlationView, setCorrelationView] = useState<'network' | 'matrix'>('network');
+  const [hoveredMatrixCell, setHoveredMatrixCell] = useState<{
+    rowId: string;
+    colId: string;
+  } | null>(null);
+  const [showAllBridges, setShowAllBridges] = useState<boolean>(false);
+  const [correlationThreshold, setCorrelationThreshold] = useState<number>(0.2);
+  const [showMethodology, setShowMethodology] = useState<boolean>(false);
+
+  const minStreamYear = streamData[0]?.year ?? 1990;
+  const maxStreamYear = streamData[streamData.length - 1]?.year ?? 2025;
+  const totalCorpusPapers = topics.reduce((acc, t) => acc + t.paperCount, 0);
+
+  const uniqueBridgePairs = useMemo(
+    () => correlations.filter((c) => c.sourceTopicId < c.targetTopicId),
+    [correlations]
+  );
 
   const filteredStreamData = useMemo(
     () => streamData.filter((d) => d.year >= startYear),
     [streamData, startYear]
   );
 
-  // Full-width SVG dimensions for the primary focal Streamgraph
-  const width = 1120;
-  const height = 360;
-  const margin = { top: 20, right: 24, bottom: 34, left: 36 };
+  const rawByYear = useMemo(() => {
+    const map = new Map<number, YearlyTopicPrevalence>();
+    for (const row of filteredStreamData) {
+      map.set(row.year, row);
+    }
+    return map;
+  }, [filteredStreamData]);
+
+  // SVG dimensions with generous vertical breathing room
+  const width = 1160;
+  const height = 410;
+  const margin = { top: 18, right: 20, bottom: 32, left: 46 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // Compute D3 Stack & Smooth Centered Streamgraph (ThemeRiver Silhouette)
-  const { stackedSeries, xScale, yScale, areaGenerator } = useMemo(() => {
+  // Compute smoothed or raw series with D3 Catmull-Rom curve interpolation
+  const {
+    stackedSeries,
+    xScale,
+    yScale,
+    areaGenerator,
+    yTicks,
+  } = useMemo(() => {
     const keys = topics.map((t) => t.id);
 
-    const flatRows = filteredStreamData.map((row) => {
+    const flatRows = filteredStreamData.map((row, idx) => {
       const obj: Record<string, number> = { year: row.year };
-      for (const k of keys) {
-        obj[k] =
-          metricMode === 'prevalence'
-            ? (row.values[k] ?? 0) * 100
-            : row.counts[k] ?? 0;
+      const lo = smoothingMode === 'smoothed' ? Math.max(0, idx - 1) : idx;
+      const hi =
+        smoothingMode === 'smoothed'
+          ? Math.min(filteredStreamData.length - 1, idx + 1)
+          : idx;
+      const winLen = hi - lo + 1;
+
+      if (metricMode === 'prevalence') {
+        let rowSum = 0;
+        for (const k of keys) {
+          let acc = 0;
+          for (let j = lo; j <= hi; j++) {
+            acc += filteredStreamData[j].values[k] ?? 0;
+          }
+          const avg = acc / winLen;
+          obj[k] = avg;
+          rowSum += avg;
+        }
+        const normFactor = rowSum > 0 ? 100 / rowSum : 0;
+        for (const k of keys) {
+          obj[k] = obj[k] * normFactor;
+        }
+      } else {
+        for (const k of keys) {
+          let acc = 0;
+          for (let j = lo; j <= hi; j++) {
+            acc += filteredStreamData[j].counts[k] ?? 0;
+          }
+          obj[k] = acc / winLen;
+        }
       }
       return obj;
     });
 
-    // Clean, smooth centered ThemeRiver/Streamgraph layout
     const stackGen = d3
       .stack<Record<string, number>>()
       .keys(keys)
-      .offset(d3.stackOffsetSilhouette)
-      .order(d3.stackOrderInsideOut);
+      .order(d3.stackOrderNone)
+      .offset(
+        metricMode === 'prevalence'
+          ? d3.stackOffsetNone
+          : d3.stackOffsetSilhouette
+      );
 
     const series = stackGen(flatRows);
 
     const xDomain = d3.extent(flatRows, (d) => d.year) as [number, number];
     const x = d3
       .scaleLinear()
-      .domain(xDomain[0] ? xDomain : [1990, 2024])
+      .domain(xDomain[0] ? xDomain : [1990, 2025])
       .range([0, innerWidth]);
 
-    const yMin = d3.min(series, (layer) => d3.min(layer, (d) => d[0])) ?? -50;
-    const yMax = d3.max(series, (layer) => d3.max(layer, (d) => d[1])) ?? 50;
+    let yMin = 0;
+    let yMax = 100;
+    if (metricMode === 'counts') {
+      yMin = d3.min(series, (layer) => d3.min(layer, (d) => d[0])) ?? -80;
+      yMax = d3.max(series, (layer) => d3.max(layer, (d) => d[1])) ?? 80;
+      const pad = Math.max(4, (yMax - yMin) * 0.06);
+      yMin -= pad;
+      yMax += pad;
+    }
 
-    const y = d3
-      .scaleLinear()
-      .domain([yMin, yMax])
-      .range([innerHeight, 0]);
+    const y = d3.scaleLinear().domain([yMin, yMax]).range([innerHeight, 0]);
 
     const area = d3
       .area<d3.SeriesPoint<Record<string, number>>>()
       .x((d) => x(d.data.year))
       .y0((d) => y(d[0]))
       .y1((d) => y(d[1]))
-      .curve(d3.curveBasis);
+      .curve(d3.curveCatmullRom.alpha(0.5));
+
+    const ticks = metricMode === 'prevalence' ? [0, 25, 50, 75, 100] : [];
 
     return {
       stackedSeries: series,
       xScale: x,
       yScale: y,
       areaGenerator: area,
+      yTicks: ticks,
     };
-  }, [topics, filteredStreamData, metricMode, innerWidth, innerHeight]);
+  }, [topics, filteredStreamData, metricMode, smoothingMode, innerWidth, innerHeight]);
 
   const topicMap = useMemo(() => {
     const map = new Map<string, TopicSummary>();
@@ -103,13 +172,90 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
     return map;
   }, [topics]);
 
-  // Secondary D3 Force Simulation for Inter-Topic Correlation Topology
+  // Collision-aware direct ribbon label placement so all 8 topic names sit cleanly on their streams without overlap
+  const ribbonLabels = useMemo(() => {
+    interface PlacedLabel {
+      topicId: string;
+      shortName: string;
+      color: string;
+      x: number;
+      y: number;
+      w: number;
+      thickness: number;
+    }
+
+    const layerStats = stackedSeries
+      .map((layer) => {
+        const topic = topicMap.get(layer.key);
+        if (!topic || layer.length === 0) return null;
+        let maxThickness = 0;
+        for (const pt of layer) {
+          const th = Math.abs(yScale(pt[0]) - yScale(pt[1]));
+          if (th > maxThickness) maxThickness = th;
+        }
+        return { layer, topic, maxThickness };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      // Place narrowest ribbons first so wide ribbons adjust around them cleanly
+      .sort((a, b) => a.maxThickness - b.maxThickness);
+
+    const placed: PlacedLabel[] = [];
+
+    for (const { layer, topic } of layerStats) {
+      const labelW = topic.shortName.length * 6.8 + 18;
+      const minX = labelW / 2 + 14;
+      const maxX = innerWidth - labelW / 2 - 14;
+
+      let bestScore = -Infinity;
+      let bestX = innerWidth / 2;
+      let bestY = innerHeight / 2;
+      let bestThickness = 0;
+
+      for (const pt of layer) {
+        const cx = xScale(pt.data.year);
+        if (cx < minX || cx > maxX) continue;
+        const y0 = yScale(pt[0]);
+        const y1 = yScale(pt[1]);
+        const thickness = Math.abs(y0 - y1);
+        const cy = Math.max(14, Math.min(innerHeight - 14, (y0 + y1) / 2));
+
+        const overlaps = placed.some(
+          (p) =>
+            Math.abs(cx - p.x) < (labelW + p.w) / 2 + 10 &&
+            Math.abs(cy - p.y) < 20
+        );
+
+        const spreadBonus = -Math.abs(cx - innerWidth * 0.52) * 0.012;
+        const score = thickness + spreadBonus + (overlaps ? -1000 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          bestX = cx;
+          bestY = cy;
+          bestThickness = thickness;
+        }
+      }
+
+      placed.push({
+        topicId: topic.id,
+        shortName: topic.shortName,
+        color: topic.color,
+        x: bestX,
+        y: bestY,
+        w: labelW,
+        thickness: bestThickness,
+      });
+    }
+
+    return placed;
+  }, [stackedSeries, topicMap, xScale, yScale, innerWidth, innerHeight]);
+
+  // D3 Force Simulation for Inter-Topic Correlation Topology
   const correlationLayout = useMemo(() => {
     const netW = 460;
-    const netH = 350;
+    const netH = 340;
     const cx = netW / 2;
     const cy = netH / 2 - 4;
-    const initialRadius = 136;
+    const initialRadius = 132;
 
     interface SimTopicNode extends d3.SimulationNodeDatum {
       id: string;
@@ -129,9 +275,7 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
     });
 
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
-    const uniqueEdges = correlations.filter(
-      (e) => e.sourceTopicId < e.targetTopicId && e.correlation >= 0.28
-    );
+    const uniqueEdges = getCorrelationGraphEdges(correlations, correlationThreshold);
 
     const simLinks = uniqueEdges
       .map((e) => ({
@@ -149,10 +293,10 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
         d3
           .forceLink<SimTopicNode, (typeof simLinks)[number]>(simLinks)
           .id((d) => d.id)
-          .distance((l) => 205 * (1 - l.correlation * 0.35))
+          .distance((l) => 200 * (1 - l.correlation * 0.35))
           .strength((l) => l.correlation * 0.18)
       )
-      .force('charge', d3.forceManyBody().strength(-500))
+      .force('charge', d3.forceManyBody().strength(-480))
       .force('center', d3.forceCenter(cx, cy))
       .force('radial', d3.forceRadial(initialRadius, cx, cy).strength(0.75))
       .force('collide', d3.forceCollide<SimTopicNode>().radius(44).iterations(3))
@@ -167,192 +311,242 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
     }
 
     return { nodes, links: simLinks, netW, netH };
-  }, [topics, correlations]);
+  }, [topics, correlations, correlationThreshold]);
 
   const activeYearData = useMemo(() => {
-    const targetYr = hoveredYear ?? 2022;
-    return (
-      filteredStreamData.find((d) => d.year === targetYr) ||
-      filteredStreamData[filteredStreamData.length - 1]
-    );
-  }, [filteredStreamData, hoveredYear]);
+    if (hoveredYear !== null) {
+      return rawByYear.get(hoveredYear) ?? filteredStreamData[filteredStreamData.length - 1];
+    }
+    return null;
+  }, [rawByYear, hoveredYear, filteredStreamData]);
 
-  const hoveredTopic = activeHighlightTopicId
-    ? topicMap.get(activeHighlightTopicId) || null
-    : null;
+  const activeYearTotalPapers = useMemo(() => {
+    if (!activeYearData) return 0;
+    return Object.values(activeYearData.counts).reduce((sum, n) => sum + n, 0);
+  }, [activeYearData]);
+
+  const hoveredTopic = hoveredTopicId ? topicMap.get(hoveredTopicId) || null : null;
+
+  const focusedYearTopic = useMemo(() => {
+    if (!activeYearData) return null;
+    if (hoveredTopic) return hoveredTopic;
+    let topTopic: TopicSummary | null = null;
+    let topCnt = -1;
+    for (const t of topics) {
+      const cnt = activeYearData.counts[t.id] ?? 0;
+      if (cnt > topCnt) {
+        topCnt = cnt;
+        topTopic = t;
+      }
+    }
+    return topTopic;
+  }, [activeYearData, hoveredTopic, topics]);
 
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const relX = ((e.clientX - rect.left) / rect.width) * width - margin.left;
     const clampedX = Math.max(0, Math.min(innerWidth, relX));
-    const yr = Math.round(xScale.invert(clampedX));
+    const yr = Math.max(
+      startYear,
+      Math.min(maxStreamYear, Math.round(xScale.invert(clampedX)))
+    );
     setHoveredYear(yr);
+    setIsPointerInsideChart(true);
   };
+
+  const handleSvgMouseLeave = () => {
+    setIsPointerInsideChart(false);
+    setHoveredYear(null);
+    setHoveredTopicId(null);
+  };
+
+  // Compute crosshair Y dot position on the hovered ribbon if present
+  const crosshairDotY = useMemo(() => {
+    if (!activeYearData || !hoveredTopicId) return null;
+    const layer = stackedSeries.find((s) => s.key === hoveredTopicId);
+    if (!layer) return null;
+    const pt = layer.find((p) => p.data.year === activeYearData.year);
+    if (!pt) return null;
+    return yScale((pt[0] + pt[1]) / 2);
+  }, [activeYearData, hoveredTopicId, stackedSeries, yScale]);
+
+  const tooltipPercentLeft = activeYearData
+    ? ((margin.left + xScale(activeYearData.year)) / width) * 100
+    : 50;
+  const flipTooltipLeft = tooltipPercentLeft > 64;
 
   return (
     <div className="space-y-6">
-      {/* PRIMARY FULL-WIDTH FOCAL POINT: Topic Prevalence Evolution (Streamgraph) with Embedded Controls */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 space-y-4">
-        {/* Card Header + Scoped Streamgraph Controls */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-lg font-bold text-slate-900">
-                Topic Prevalence Evolution (IEEE VIS {startYear}–2024)
-              </h2>
-              {activeYearData && (
-                <span className="px-2 py-0.5 text-xs font-mono-tabular font-semibold bg-slate-100 text-slate-800 rounded">
-                  Inspected Year: {activeYearData.year}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {metricMode === 'counts'
-                ? 'Displaying annual Research Volume (Total Papers per year) across the 8 core IEEE VIS subfields. Click any stream to open its Topic Network.'
-                : 'Displaying Relative Field Share (% of VIS Papers per year) across the 8 core IEEE VIS subfields. Click any stream to open its Topic Network.'}
+      {/* PRIMARY FOCAL ANCHOR: CLEAN STREAMGRAPH */}
+      <section
+        className="bg-white border border-slate-200 rounded-lg p-6 space-y-5"
+        aria-labelledby="streamgraph-heading"
+      >
+        {/* Header & Single-Line Segmented Controls */}
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+          <div className="space-y-1">
+            <h2
+              id="streamgraph-heading"
+              className="text-xl font-bold tracking-tight text-slate-900"
+            >
+              Topic Evolution Across IEEE VIS ({startYear}–{maxStreamYear})
+            </h2>
+            <p className="text-xs text-slate-500">
+              {metricMode === 'prevalence'
+                ? '100% normalized share across all 8 subfields'
+                : 'Centered stream silhouette of annual paper volume'}{' '}
+              · {smoothingMode === 'smoothed' ? '3-year rolling average' : 'raw yearly values'} ·{' '}
+              <span className="font-mono-tabular">
+                {totalCorpusPapers.toLocaleString()} papers
+              </span>
             </p>
           </div>
 
-          {/* Streamgraph-Scoped Filter Controls (Metric Mode & Time Period) */}
-          <div className="flex flex-wrap items-end gap-4 bg-slate-50/80 border border-slate-200/80 rounded-lg px-3.5 py-2.5">
-            {/* Metric Toggle: Research Volume (Default) vs Relative Field Share (%) */}
-            <div>
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  Stream Metric
-                </span>
-                <div
-                  className="relative inline-block"
-                  onMouseEnter={() => setShowShareTooltip(true)}
-                  onMouseLeave={() => setShowShareTooltip(false)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setShowShareTooltip((v) => !v)}
-                    onFocus={() => setShowShareTooltip(true)}
-                    onBlur={() => setShowShareTooltip(false)}
-                    aria-label="Explain Research Share (%)"
-                    className="text-slate-400 hover:text-slate-700 transition-colors align-middle"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                  </button>
-                  {showShareTooltip && (
-                    <div
-                      role="tooltip"
-                      style={{ pointerEvents: 'none' }}
-                      className="pointer-events-none absolute left-0 top-6 z-30 w-72 p-2.5 bg-slate-900 text-white text-xs rounded-lg shadow-lg leading-relaxed"
-                    >
-                      Research Volume shows total annual IEEE VIS papers per topic; Relative Field Share (%) represents the proportion of all VIS publications in a given year focused on that topic.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="inline-flex items-center gap-1 p-1 bg-slate-200/70 rounded-md">
-                <button
-                  type="button"
-                  onClick={() => setMetricMode('counts')}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                    metricMode === 'counts'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Research Volume (Total Papers)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMetricMode('prevalence')}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                    metricMode === 'prevalence'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Relative Field Share (%)
-                </button>
-              </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Scale Mode Toggle */}
+            <div
+              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              role="group"
+              aria-label="Streamgraph scale mode"
+            >
+              <button
+                type="button"
+                data-testid="stream-mode-counts-btn"
+                onClick={() => setMetricMode('counts')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  metricMode === 'counts'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Paper Count
+              </button>
+              <button
+                type="button"
+                data-testid="stream-mode-share-btn"
+                onClick={() => setMetricMode('prevalence')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  metricMode === 'prevalence'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Normalized Share (%)
+              </button>
             </div>
 
-            {/* Time Period Filter */}
-            <div>
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                Time Period
-              </span>
-              <div className="inline-flex items-center gap-1 p-1 bg-slate-200/70 rounded-md">
-                {[
-                  { yr: 1990, label: '1990–2024 (All Years)' },
-                  { yr: 2004, label: '2004–2024 (Modern Era)' },
-                  { yr: 2014, label: '2014–2024 (Last Decade)' },
-                ].map((win) => (
-                  <button
-                    key={win.yr}
-                    type="button"
-                    onClick={() => setStartYear(win.yr)}
-                    className={`px-2.5 py-1 text-xs font-mono-tabular font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                      startYear === win.yr
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {win.label}
-                  </button>
-                ))}
-              </div>
+            {/* Smoothing Toggle */}
+            <div
+              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              role="group"
+              aria-label="Streamgraph temporal smoothing"
+            >
+              <button
+                type="button"
+                data-testid="stream-smooth-btn"
+                onClick={() => setSmoothingMode('smoothed')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  smoothingMode === 'smoothed'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                3-Year Rolling
+              </button>
+              <button
+                type="button"
+                data-testid="stream-raw-btn"
+                onClick={() => setSmoothingMode('raw')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  smoothingMode === 'raw'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Raw Yearly
+              </button>
+            </div>
+
+            {/* Time Period Selector */}
+            <div
+              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              role="group"
+              aria-label="Time window"
+            >
+              {[
+                { yr: 1990, label: `1990–${maxStreamYear}` },
+                { yr: 2004, label: `2004–${maxStreamYear}` },
+                { yr: 2014, label: `2014–${maxStreamYear}` },
+              ].map((win) => (
+                <button
+                  key={win.yr}
+                  type="button"
+                  onClick={() => setStartYear(win.yr)}
+                  className={`px-2.5 py-1.5 text-xs font-mono-tabular font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    startYear === win.yr
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {win.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Live Hover Banner for Novice Researchers (Stable height + pointer-events-none) */}
-        <div
-          style={{ pointerEvents: 'none' }}
-          className="min-h-[48px] pointer-events-none px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-        >
-          {hoveredTopic && activeYearData ? (
-            <>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                <span
-                  className="w-2.5 h-2.5 rounded-xs shrink-0"
-                  style={{ backgroundColor: hoveredTopic.color }}
-                />
-                <strong className="font-semibold text-slate-900">
-                  {hoveredTopic.name}:
-                </strong>
-                <span className="text-slate-600 leading-relaxed">
-                  {hoveredTopic.description}
-                </span>
-              </div>
-              <span className="font-mono-tabular font-semibold text-slate-900 shrink-0">
-                {activeYearData.year}: {activeYearData.counts[hoveredTopic.id] ?? 0} papers (
-                {((activeYearData.values[hoveredTopic.id] ?? 0) * 100).toFixed(1)}% share)
-              </span>
-            </>
-          ) : (
-            <span className="text-slate-500 leading-relaxed">
-              Hover over any colored stream to inspect annual paper volume and subfield description, or click to open its Topic Network.
-            </span>
-          )}
-        </div>
-
-        {/* Full-Width SVG Streamgraph Canvas */}
-        <div className="relative w-full overflow-hidden">
+        {/* Full-Width SVG Streamgraph + Floating Crosshair Tooltip */}
+        <div className="relative w-full">
           <svg
             viewBox={`0 0 ${width} ${height}`}
-            className="w-full h-auto select-none cursor-crosshair"
+            className="w-full h-auto select-none cursor-crosshair block"
             role="img"
-            aria-label="D3 Streamgraph of IEEE VIS research subfields over time"
+            aria-label="Streamgraph of IEEE VIS research subfields from 1990 to 2025"
             data-testid="streamgraph-svg"
             onMouseMove={handleSvgMouseMove}
+            onMouseLeave={handleSvgMouseLeave}
           >
             <g transform={`translate(${margin.left}, ${margin.top})`}>
+              {/* Horizontal Y-Axis Gridlines (Normalized Share mode) or Center Baseline (Paper Count Silhouette) */}
+              {metricMode === 'prevalence' ? (
+                yTicks.map((tickVal) => (
+                  <g key={tickVal} transform={`translate(0, ${yScale(tickVal)})`}>
+                    <line
+                      x1={0}
+                      x2={innerWidth}
+                      stroke="#E2E8F0"
+                      strokeDasharray={tickVal === 0 || tickVal === 100 ? undefined : '3,3'}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={-10}
+                      dy="0.32em"
+                      textAnchor="end"
+                      className="text-[11px] fill-slate-400 font-mono-tabular"
+                    >
+                      {tickVal}%
+                    </text>
+                  </g>
+                ))
+              ) : (
+                <line
+                  x1={0}
+                  x2={innerWidth}
+                  y1={yScale(0)}
+                  y2={yScale(0)}
+                  stroke="#CBD5E1"
+                  strokeDasharray="3,3"
+                  strokeWidth={1}
+                />
+              )}
+
               {/* Vertical Year Gridlines */}
               {xScale.ticks(10).map((yrTick) => (
                 <g key={yrTick} transform={`translate(${xScale(yrTick)}, 0)`}>
                   <line
                     y1={0}
                     y2={innerHeight}
-                    stroke="#E2E8F0"
-                    strokeDasharray="3,3"
+                    stroke="#F1F5F9"
                     strokeWidth={1}
                   />
                   <text
@@ -365,36 +559,19 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 </g>
               ))}
 
-              {/* Stream Layers */}
+              {/* Smooth Stream Ribbons */}
               {stackedSeries.map((layer) => {
                 const topic = topicMap.get(layer.key);
                 if (!topic) return null;
                 const pathD = areaGenerator(layer) || '';
-                const isHighlighted =
-                  !activeHighlightTopicId || activeHighlightTopicId === topic.id;
-
-                // Find label anchor at peak thickness
-                let maxDiff = -1;
-                let bestPoint = layer[Math.floor(layer.length / 2)];
-                for (const pt of layer) {
-                  const diff = pt[1] - pt[0];
-                  if (diff > maxDiff) {
-                    maxDiff = diff;
-                    bestPoint = pt;
-                  }
-                }
-                const labelX = bestPoint ? xScale(bestPoint.data.year) : innerWidth / 2;
-                const labelY = bestPoint
-                  ? yScale((bestPoint[0] + bestPoint[1]) / 2)
-                  : innerHeight / 2;
+                const isHighlighted = !hoveredTopicId || hoveredTopicId === topic.id;
 
                 return (
                   <g
                     key={topic.id}
                     className="cursor-pointer transition-opacity duration-150"
-                    style={{ opacity: isHighlighted ? 0.92 : 0.22 }}
+                    style={{ opacity: isHighlighted ? 0.94 : 0.25 }}
                     onMouseEnter={() => setHoveredTopicId(topic.id)}
-                    onMouseLeave={() => setHoveredTopicId(null)}
                     onClick={() => onSelectTopic(topic.id)}
                     role="button"
                     tabIndex={0}
@@ -410,209 +587,268 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                       d={pathD}
                       fill={topic.color}
                       stroke="#FFFFFF"
-                      strokeWidth={activeHighlightTopicId === topic.id ? 1.75 : 0.75}
+                      strokeWidth={hoveredTopicId === topic.id ? 2 : 1.25}
+                      strokeLinejoin="round"
                     />
-                    {maxDiff > (yScale.domain()[1] - yScale.domain()[0]) * 0.075 && (
-                      <text
-                        x={Math.max(72, Math.min(innerWidth - 78, labelX))}
-                        y={labelY}
-                        dy="0.35em"
-                        textAnchor="middle"
-                        className="pointer-events-none text-[11px] font-semibold fill-white drop-shadow-xs"
-                      >
-                        {topic.shortName}
-                      </text>
-                    )}
                   </g>
                 );
               })}
 
-              {/* Interactive Year Crosshair Probe */}
-              {activeYearData && (
-                <line
-                  x1={xScale(activeYearData.year)}
-                  x2={xScale(activeYearData.year)}
-                  y1={0}
-                  y2={innerHeight}
-                  stroke="#0F172A"
-                  strokeWidth={1.25}
-                  strokeDasharray="4,3"
-                  className="pointer-events-none"
-                />
+              {/* Direct Non-Overlapping Subfield Name Labels on Ribbons */}
+              <g
+                className="pointer-events-none"
+                style={{ pointerEvents: 'none' }}
+                data-testid="streamgraph-ribbon-labels"
+              >
+                {ribbonLabels.map((lbl) => {
+                  const isHighlighted = !hoveredTopicId || hoveredTopicId === lbl.topicId;
+                  return (
+                    <text
+                      key={`lbl-${lbl.topicId}`}
+                      x={lbl.x}
+                      y={lbl.y}
+                      dy="0.35em"
+                      textAnchor="middle"
+                      style={{
+                        opacity: isHighlighted ? 1 : 0.25,
+                        paintOrder: 'stroke fill',
+                        stroke: 'rgba(15, 23, 42, 0.58)',
+                        strokeWidth: '3.2px',
+                        strokeLinejoin: 'round',
+                        pointerEvents: 'none',
+                      }}
+                      className="text-[11px] font-semibold fill-white transition-opacity duration-150 select-none"
+                    >
+                      {lbl.shortName}
+                    </text>
+                  );
+                })}
+              </g>
+
+              {/* Interactive Hover Crosshair */}
+              {isPointerInsideChart && activeYearData && (
+                <g className="pointer-events-none" style={{ pointerEvents: 'none' }}>
+                  <line
+                    x1={xScale(activeYearData.year)}
+                    x2={xScale(activeYearData.year)}
+                    y1={0}
+                    y2={innerHeight}
+                    stroke="#0F172A"
+                    strokeWidth={1.25}
+                    strokeDasharray="4,3"
+                  />
+                  {crosshairDotY !== null && hoveredTopic && (
+                    <circle
+                      cx={xScale(activeYearData.year)}
+                      cy={crosshairDotY}
+                      r={4.5}
+                      fill={hoveredTopic.color}
+                      stroke="#FFFFFF"
+                      strokeWidth={2}
+                    />
+                  )}
+                </g>
               )}
             </g>
           </svg>
+
+          {/* Compact Floating Tooltip on Hover */}
+          {isPointerInsideChart && activeYearData && focusedYearTopic && (
+            <div
+              data-testid="streamgraph-tooltip"
+              style={{
+                left: `${tooltipPercentLeft}%`,
+                transform: flipTooltipLeft
+                  ? 'translate(calc(-100% - 14px), 0)'
+                  : 'translate(14px, 0)',
+                pointerEvents: 'none',
+              }}
+              className="pointer-events-none absolute top-4 z-20 w-60 rounded-lg bg-slate-900/95 text-white px-3.5 py-2.5 shadow-lg border border-slate-700/80 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-slate-700/80 font-mono-tabular">
+                <span className="font-bold text-white">{activeYearData.year}</span>
+                <span className="text-slate-300">
+                  {activeYearTotalPapers} papers total
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-xs shrink-0"
+                    style={{ backgroundColor: focusedYearTopic.color }}
+                  />
+                  <span className="font-semibold text-white truncate">
+                    {focusedYearTopic.shortName}
+                  </span>
+                </span>
+                <span className="font-mono-tabular text-slate-200 shrink-0 font-semibold">
+                  {activeYearData.counts[focusedYearTopic.id] ?? 0}p ·{' '}
+                  {((activeYearData.values[focusedYearTopic.id] ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                {hoveredTopic ? 'Click ribbon to open Topic Network' : 'Hover any ribbon for details'}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Live Year Breakdown Legend Strip */}
-        {activeYearData && (
-          <div className="pt-3 border-t border-slate-100">
-            <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-              <span>
-                Annual Subfield Breakdown in{' '}
-                <strong className="font-mono-tabular text-slate-800">
-                  {activeYearData.year}
-                </strong>
-              </span>
-              <span>Click any subfield card to explore its Topic Network</span>
+        {/* Clean 8-Item Interactive Color Legend (Zero Overlapping Text) */}
+        <div
+          className="pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2"
+          data-testid="streamgraph-legend"
+        >
+          {topics.map((t) => {
+            const isHovered = hoveredTopicId === t.id;
+            const yearCount = activeYearData ? activeYearData.counts[t.id] ?? 0 : t.paperCount;
+            const yearShare = activeYearData
+              ? ((activeYearData.values[t.id] ?? 0) * 100).toFixed(1)
+              : ((t.paperCount / Math.max(1, totalCorpusPapers)) * 100).toFixed(1);
+
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onSelectTopic(t.id)}
+                onMouseEnter={() => setHoveredTopicId(t.id)}
+                onMouseLeave={() => setHoveredTopicId(null)}
+                className={`text-left px-2.5 py-2 rounded-md border transition-colors ${
+                  isHovered
+                    ? 'border-slate-900 bg-slate-50'
+                    : 'border-slate-200/80 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-xs shrink-0"
+                    style={{ backgroundColor: t.color }}
+                  />
+                  <span className="text-xs font-semibold text-slate-900 truncate">
+                    {t.shortName}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] font-mono-tabular text-slate-500 whitespace-nowrap">
+                  {yearCount.toLocaleString()}p · {yearShare}%
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* SECONDARY ROW: TOPIC SUMMARY CARDS (LEFT 7 COLS) + TOPIC CORRELATION GRAPH (RIGHT 5 COLS) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Left 7 Cols: Clean Topic Summary Cards Grid */}
+        <section
+          className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between gap-4"
+          aria-labelledby="subfields-directory-heading"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3 border-b border-slate-100">
+            <div>
+              <h3
+                id="subfields-directory-heading"
+                className="text-base font-semibold text-slate-900"
+              >
+                Research Subfields ({topics.length})
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Click any subfield to inspect its citation network and contributing papers
+              </p>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-              {topics.map((t) => {
-                const pct = ((activeYearData.values[t.id] ?? 0) * 100).toFixed(1);
-                const cnt = activeYearData.counts[t.id] ?? 0;
-                const isFocused = activeHighlightTopicId === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onSelectTopic(t.id)}
-                    onMouseEnter={() => setHoveredTopicId(t.id)}
-                    onMouseLeave={() => setHoveredTopicId(null)}
-                    title={`${t.name}: ${t.description}`}
-                    className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
-                      isFocused
-                        ? 'border-slate-900 bg-slate-50'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="w-2.5 h-2.5 rounded-xs shrink-0"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="text-xs font-medium text-slate-800 truncate">
-                        {t.shortName}
+            <span className="text-xs font-mono-tabular text-slate-500">
+              {totalCorpusPapers.toLocaleString()} papers · {minStreamYear}–{maxStreamYear}
+            </span>
+          </div>
+
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+            data-testid="subfields-directory-table"
+          >
+            {topics.map((topic) => {
+              const corpusShare = (
+                (topic.paperCount / Math.max(1, totalCorpusPapers)) *
+                100
+              ).toFixed(1);
+              const isHighlighted = hoveredTopicId === topic.id;
+              return (
+                <button
+                  key={topic.id}
+                  type="button"
+                  onClick={() => onSelectTopic(topic.id)}
+                  onMouseEnter={() => setHoveredTopicId(topic.id)}
+                  onMouseLeave={() => setHoveredTopicId(null)}
+                  className={`text-left p-3.5 rounded-md border transition-colors flex flex-col justify-between gap-2.5 ${
+                    isHighlighted
+                      ? 'border-slate-900 bg-slate-50/80'
+                      : 'border-slate-200 hover:border-slate-400 bg-white'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-xs shrink-0"
+                          style={{ backgroundColor: topic.color }}
+                        />
+                        <span className="text-sm font-semibold text-slate-900 truncate">
+                          {topic.shortName}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono-tabular font-semibold text-slate-900 shrink-0">
+                        {topic.paperCount.toLocaleString()}
                       </span>
                     </div>
-                    <div className="mt-0.5 text-[11px] font-mono-tabular text-slate-500">
-                      {cnt} papers · {pct}%
+
+                    <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                      {topic.description}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                    <div className="text-[11px] font-mono-tabular text-slate-600 truncate">
+                      {topic.topKeywords
+                        .slice(0, 3)
+                        .map((k) => k.term)
+                        .join(' · ')}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* SECONDARY ROW: Extracted Subfields Directory (Left 7 Cols) + Inter-Topic Correlation Topology (Right 5 Cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        {/* Left 7 Cols: Core IEEE VIS Research Subfields & Emerging Themes (Citations column removed) */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col justify-between">
-          <div>
-            <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">
-                  Core IEEE VIS Research Subfields &amp; Emerging Themes
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Plain-English guide to the 8 major visualization research areas and how they are shifting
-                </p>
-              </div>
-              <span className="text-xs font-mono-tabular text-slate-500">
-                8 Core Subfields · {topics.reduce((acc, t) => acc + t.paperCount, 0).toLocaleString()} Corpus Papers ({topics.reduce((acc, t) => acc + (t.indexedPaperCount ?? 0), 0)} Indexed Landmarks)
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table
-                className="w-full text-left border-collapse"
-                data-testid="subfields-directory-table"
-              >
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-medium text-slate-500">
-                    <th className="py-2.5 px-4">Research Subfield &amp; What It Investigates</th>
-                    <th className="py-2.5 px-4">Key Terms</th>
-                    <th className="py-2.5 px-4 text-right">Papers (1990–2024)</th>
-                    <th className="py-2.5 px-4 text-right">Peak Year</th>
-                    <th className="py-2.5 px-4 text-right">5-Yr Trend</th>
-                    <th className="py-2.5 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 text-sm">
-                  {topics.map((topic) => (
-                    <tr
-                      key={topic.id}
-                      onClick={() => onSelectTopic(topic.id)}
-                      onMouseEnter={() => setHoveredTopicId(topic.id)}
-                      onMouseLeave={() => setHoveredTopicId(null)}
-                      className="hover:bg-slate-50 cursor-pointer transition-colors align-top"
-                    >
-                      <td className="py-3 px-4 max-w-xs">
-                        <div className="flex items-start gap-2.5">
-                          <span
-                            className="w-3 h-3 rounded-xs shrink-0 mt-1"
-                            style={{ backgroundColor: topic.color }}
-                          />
-                          <div>
-                            <div className="font-semibold text-slate-900 text-xs sm:text-sm">
-                              {topic.name}
-                            </div>
-                            <p className="text-xs text-slate-600 mt-0.5 leading-relaxed line-clamp-2">
-                              {topic.description}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 max-w-[200px]">
-                        <div className="text-xs font-mono-tabular font-medium text-slate-700 leading-snug">
-                          {topic.topKeywords
-                            .slice(0, 3)
-                            .map((k) => k.term)
-                            .join(' · ')}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono-tabular">
-                        <div className="text-xs font-semibold text-slate-900">
-                          {topic.paperCount.toLocaleString()}
-                        </div>
-                        {topic.indexedPaperCount !== undefined && (
-                          <div className="text-[10px] text-slate-500">
-                            {topic.indexedPaperCount} indexed
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono-tabular text-xs text-slate-600">
-                        {topic.peakYear}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono-tabular text-xs font-medium ${
+                    <div className="flex items-center justify-between text-[11px] font-mono-tabular text-slate-500">
+                      <span>
+                        {corpusShare}% share · Peak {topic.peakYear}
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-0.5 font-semibold ${
                           topic.growthRate >= 0 ? 'text-emerald-700' : 'text-amber-700'
                         }`}
                       >
-                        {topic.growthRate >= 0 ? `+${topic.growthRate}%` : `${topic.growthRate}%`}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectTopic(topic.id);
-                          }}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 hover:text-blue-900 whitespace-nowrap"
-                        >
-                          Explore
-                          <ArrowUpRight className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        {topic.growthRate >= 0
+                          ? `+${topic.growthRate}%`
+                          : `${topic.growthRate}%`}
+                        <ArrowUpRight className="w-3 h-3 text-slate-400 ml-0.5" />
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </section>
 
-        {/* Right 5 Cols: Secondary Inter-Topic Correlation Topology */}
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between gap-4">
-          <div>
-            <div className="flex items-start justify-between gap-2 mb-3">
+        {/* Right 5 Cols: Inter-Topic Correlation Topology */}
+        <section
+          className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between gap-4"
+          aria-labelledby="correlation-heading"
+        >
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">
-                  Inter-Topic Correlation Topology
-                </h2>
+                <h3
+                  id="correlation-heading"
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Topic Correlation Graph
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Cumulative cross-subfield overlap across the 1990–2024 corpus
+                  Subfield co-occurrence overlap ({minStreamYear}–{maxStreamYear})
                 </p>
               </div>
               <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg shrink-0">
@@ -643,26 +879,53 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
               </div>
             </div>
 
+            {correlationView === 'network' && (
+              <div className="px-2.5 py-1.5 bg-slate-50 border border-slate-200/80 rounded-md flex items-center justify-between gap-3 text-[11px]">
+                <label
+                  htmlFor="correlation-threshold-slider"
+                  className="font-medium text-slate-600 whitespace-nowrap"
+                >
+                  Link Cutoff:{' '}
+                  <span className="font-mono-tabular font-semibold text-slate-900">
+                    ≥ {Math.round(correlationThreshold * 100)}%
+                  </span>
+                </label>
+                <input
+                  id="correlation-threshold-slider"
+                  type="range"
+                  min={0.1}
+                  max={0.32}
+                  step={0.02}
+                  value={correlationThreshold}
+                  onChange={(e) => setCorrelationThreshold(Number(e.target.value))}
+                  aria-label="Minimum topic correlation link threshold"
+                  className="flex-1 max-w-[140px] accent-slate-900 cursor-pointer"
+                />
+                <span className="font-mono-tabular text-slate-500 whitespace-nowrap">
+                  {correlationLayout.links.length}/{uniqueBridgePairs.length} edges
+                </span>
+              </div>
+            )}
+
             {correlationView === 'network' ? (
               <div className="relative flex items-center justify-center bg-slate-50/50 border border-slate-100 rounded-md p-2">
                 <svg
                   viewBox={`0 0 ${correlationLayout.netW} ${correlationLayout.netH}`}
-                  className="w-full h-auto max-h-[300px] select-none"
+                  className="w-full h-auto max-h-[305px] select-none"
                   role="img"
                   aria-label="Topic correlation network diagram"
                   data-testid="topic-correlation-svg"
                 >
-                  {/* Edges */}
                   {correlationLayout.links.map((link, idx) => {
                     const isConnectedToHighlight =
-                      !activeHighlightTopicId ||
-                      link.source.id === activeHighlightTopicId ||
-                      link.target.id === activeHighlightTopicId;
+                      !hoveredTopicId ||
+                      link.source.id === hoveredTopicId ||
+                      link.target.id === hoveredTopicId;
 
                     const isActivelyHoveredEdge =
-                      Boolean(activeHighlightTopicId) &&
-                      (link.source.id === activeHighlightTopicId ||
-                        link.target.id === activeHighlightTopicId);
+                      Boolean(hoveredTopicId) &&
+                      (link.source.id === hoveredTopicId ||
+                        link.target.id === hoveredTopicId);
 
                     const midX = (link.source.x + link.target.x) / 2;
                     const midY = (link.source.y + link.target.y) / 2;
@@ -678,17 +941,17 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                           y1={link.source.y}
                           x2={link.target.x}
                           y2={link.target.y}
-                          stroke={isActivelyHoveredEdge ? '#0F172A' : '#475569'}
+                          stroke={isActivelyHoveredEdge ? '#0F172A' : '#64748B'}
                           strokeWidth={
                             isActivelyHoveredEdge
                               ? Math.max(2.5, link.correlation * 6.5)
-                              : Math.max(1.5, link.correlation * 5)
+                              : Math.max(1.25, link.correlation * 4.5)
                           }
                           strokeOpacity={
                             isActivelyHoveredEdge
                               ? 0.9
                               : isConnectedToHighlight
-                              ? 0.48
+                              ? 0.45
                               : 0.12
                           }
                         />
@@ -699,9 +962,9 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                             style={{ pointerEvents: 'none' }}
                           >
                             <rect
-                              x={-28}
+                              x={-26}
                               y={-9}
-                              width={56}
+                              width={52}
                               height={16}
                               rx={3}
                               fill="#0F172A"
@@ -719,11 +982,10 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                     );
                   })}
 
-                  {/* Topic Nodes */}
                   {correlationLayout.nodes.map((node) => {
                     const maxTopicPapers = Math.max(1, ...topics.map((t) => t.paperCount));
                     const r = 16 + (node.topic.paperCount / maxTopicPapers) * 9;
-                    const isFocused = activeHighlightTopicId === node.id;
+                    const isFocused = hoveredTopicId === node.id;
                     return (
                       <g
                         key={node.id}
@@ -737,9 +999,9 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                         <circle
                           r={r}
                           fill={node.topic.color}
-                          fillOpacity={!activeHighlightTopicId || isFocused ? 0.95 : 0.35}
+                          fillOpacity={!hoveredTopicId || isFocused ? 0.95 : 0.3}
                           stroke={isFocused ? '#0F172A' : '#FFFFFF'}
-                          strokeWidth={isFocused ? 2.75 : 2}
+                          strokeWidth={isFocused ? 2.5 : 1.75}
                         />
                         <text
                           y={r + 14}
@@ -767,440 +1029,311 @@ export const Streamgraph: React.FC<StreamgraphProps> = ({
                 </svg>
               </div>
             ) : (
-              /* 8x8 Calibrated Correlation Matrix */
-              <div className="flex flex-col justify-center overflow-x-auto py-1">
+              /* 8x8 Correlation Matrix */
+              <div className="flex flex-col justify-center overflow-x-auto py-1 space-y-2">
                 <table className="w-full border-collapse text-center">
                   <thead>
                     <tr>
                       <th className="p-1 text-[10px] text-left font-mono-tabular text-slate-400">
                         Subfield
                       </th>
-                      {topics.map((t, i) => (
-                        <th
-                          key={t.id}
-                          className="p-1 text-[10px] font-mono-tabular font-semibold text-slate-600"
-                          title={t.name}
-                        >
-                          #{i + 1}
-                        </th>
-                      ))}
+                      {topics.map((t, i) => {
+                        const isColHighlighted = hoveredMatrixCell?.colId === t.id;
+                        return (
+                          <th
+                            key={t.id}
+                            className={`p-1 text-[10px] font-mono-tabular font-semibold transition-colors ${
+                              isColHighlighted
+                                ? 'text-blue-700 bg-blue-50 rounded'
+                                : 'text-slate-600'
+                            }`}
+                            title={t.name}
+                          >
+                            #{i + 1}
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
-                    {topics.map((rowT, rIdx) => (
-                      <tr key={rowT.id}>
-                        <td className="p-1 text-left whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => onSelectTopic(rowT.id)}
-                            className="text-[11px] font-medium text-slate-700 hover:text-blue-600 truncate max-w-[130px] inline-flex items-center gap-1"
-                          >
-                            <span
-                              className="w-2 h-2 rounded-xs shrink-0"
-                              style={{ backgroundColor: rowT.color }}
-                            />
-                            #{rIdx + 1} {rowT.shortName}
-                          </button>
-                        </td>
-                        {topics.map((colT) => {
-                          const corr = getCorrelationBetween(rowT.id, colT.id);
-                          const bgAlpha =
-                            rowT.id === colT.id ? 0.85 : Math.max(0.08, corr * 0.85);
-                          return (
-                            <td key={colT.id} className="p-0.5">
-                              <button
-                                type="button"
-                                onClick={() => onSelectTopic(rowT.id)}
-                                onMouseEnter={() => setHoveredTopicId(rowT.id)}
-                                onMouseLeave={() => setHoveredTopicId(null)}
-                                className="w-full h-7 rounded-xs text-[10px] font-mono-tabular flex items-center justify-center transition-transform hover:scale-105"
-                                style={{
-                                  backgroundColor:
-                                    rowT.id === colT.id
+                    {topics.map((rowT, rIdx) => {
+                      const isRowHighlighted = hoveredMatrixCell?.rowId === rowT.id;
+                      return (
+                        <tr key={rowT.id}>
+                          <td className="p-1 text-left whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => onSelectTopic(rowT.id)}
+                              className={`text-[11px] font-medium truncate max-w-[130px] inline-flex items-center gap-1 transition-colors ${
+                                isRowHighlighted
+                                  ? 'text-blue-700 font-semibold'
+                                  : 'text-slate-700 hover:text-blue-600'
+                              }`}
+                            >
+                              <span
+                                className="w-2 h-2 rounded-xs shrink-0"
+                                style={{ backgroundColor: rowT.color }}
+                              />
+                              #{rIdx + 1} {rowT.shortName}
+                            </button>
+                          </td>
+                          {topics.map((colT) => {
+                            const corr = getCorrelationBetween(rowT.id, colT.id, correlations);
+                            const isSelf = rowT.id === colT.id;
+                            const isCellHovered =
+                              hoveredMatrixCell?.rowId === rowT.id &&
+                              hoveredMatrixCell?.colId === colT.id;
+                            const bgAlpha = isSelf ? 0.85 : Math.max(0.08, corr * 0.85);
+                            return (
+                              <td key={colT.id} className="p-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectTopic(isSelf ? rowT.id : colT.id)}
+                                  onMouseEnter={() => {
+                                    setHoveredTopicId(rowT.id);
+                                    setHoveredMatrixCell({
+                                      rowId: rowT.id,
+                                      colId: colT.id,
+                                    });
+                                  }}
+                                  onMouseLeave={() => {
+                                    setHoveredTopicId(null);
+                                    setHoveredMatrixCell(null);
+                                  }}
+                                  className={`w-full h-7 rounded-xs text-[10px] font-mono-tabular flex items-center justify-center transition-transform hover:scale-105 ${
+                                    isCellHovered ? 'ring-2 ring-slate-900' : ''
+                                  }`}
+                                  style={{
+                                    backgroundColor: isSelf
                                       ? '#0F172A'
-                                      : `rgba(37, 99, 235, ${bgAlpha})`,
-                                  color:
-                                    corr > 0.45 || rowT.id === colT.id
-                                      ? '#FFFFFF'
-                                      : '#1E293B',
-                                }}
-                                title={`${rowT.name} ↔ ${colT.name}: ${Math.round(
-                                  corr * 100
-                                )}% overlap strength`}
-                              >
-                                {Math.round(corr * 100)}%
-                              </button>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                                      : `rgba(43, 92, 143, ${bgAlpha})`,
+                                    color:
+                                      corr > 0.45 || isSelf ? '#FFFFFF' : '#1E293B',
+                                  }}
+                                  title={`${rowT.name} ↔ ${colT.name}: ${Math.round(
+                                    corr * 100
+                                  )}% overlap strength`}
+                                >
+                                  {Math.round(corr * 100)}%
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+                <div className="px-2 py-1 bg-slate-50 border border-slate-200/70 rounded text-[11px] font-mono-tabular text-slate-600 flex items-center justify-between gap-2 min-h-[26px]">
+                  {hoveredMatrixCell ? (() => {
+                    const rTopic = topicMap.get(hoveredMatrixCell.rowId);
+                    const cTopic = topicMap.get(hoveredMatrixCell.colId);
+                    const edge =
+                      hoveredMatrixCell.rowId === hoveredMatrixCell.colId
+                        ? null
+                        : getCorrelationEdge(
+                            hoveredMatrixCell.rowId,
+                            hoveredMatrixCell.colId,
+                            correlations
+                          );
+                    const pct = Math.round(
+                      getCorrelationBetween(
+                        hoveredMatrixCell.rowId,
+                        hoveredMatrixCell.colId,
+                        correlations
+                      ) * 100
+                    );
+                    return (
+                      <>
+                        <span className="truncate font-medium text-slate-800">
+                          {rTopic?.shortName} ↔ {cTopic?.shortName}
+                        </span>
+                        <span className="shrink-0 font-semibold text-blue-700">
+                          {pct}% overlap
+                          {edge ? ` · ${edge.coOccurrenceCount} shared papers` : ' (Self)'}
+                        </span>
+                      </>
+                    );
+                  })() : (
+                    <span className="text-slate-500">
+                      Hover a cell to inspect overlap; click to open column topic.
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
           {/* Strongest Cross-Subfield Bridges List */}
-          <div className="pt-3 border-t border-slate-100 space-y-2.5">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
-                <GitCompare className="w-3.5 h-3.5 text-blue-600" />
-                Strongest Cross-Subfield Bridges (Top 5 Couplings)
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-800">
+                {showAllBridges
+                  ? `All Subfield Bridges (${uniqueBridgePairs.length})`
+                  : 'Strongest Subfield Bridges'}
               </span>
-              <span className="font-mono-tabular text-[11px]">Overlap · Shared Papers</span>
+              <button
+                type="button"
+                data-testid="toggle-all-bridges-btn"
+                onClick={() => setShowAllBridges((v) => !v)}
+                className="text-[11px] font-semibold text-blue-700 hover:underline whitespace-nowrap"
+              >
+                {showAllBridges
+                  ? 'Show Top 5'
+                  : `View All ${uniqueBridgePairs.length} Pairs`}
+              </button>
             </div>
-            <div className="space-y-2">
-              {correlations
-                .filter((c) => c.sourceTopicId < c.targetTopicId)
-                .slice(0, 5)
-                .map((edge) => {
-                  const s = topicMap.get(edge.sourceTopicId);
-                  const t = topicMap.get(edge.targetTopicId);
-                  if (!s || !t) return null;
-                  const pct = Math.round(edge.correlation * 100);
-                  return (
-                    <div
-                      key={`${edge.sourceTopicId}-${edge.targetTopicId}`}
-                      className="flex items-center justify-between gap-3 text-xs text-slate-600 bg-slate-50/70 border border-slate-200/70 rounded-md px-2.5 py-1.5"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0 truncate">
-                        <span
-                          className="w-2 h-2 rounded-xs shrink-0"
-                          style={{ backgroundColor: s.color }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => onSelectTopic(s.id)}
-                          className="font-medium text-slate-800 hover:text-blue-700 hover:underline truncate"
-                        >
-                          {s.shortName}
-                        </button>
-                        <span className="text-slate-400 shrink-0">↔</span>
-                        <span
-                          className="w-2 h-2 rounded-xs shrink-0"
-                          style={{ backgroundColor: t.color }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => onSelectTopic(t.id)}
-                          className="font-medium text-slate-800 hover:text-blue-700 hover:underline truncate"
-                        >
-                          {t.shortName}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="w-16 h-1.5 bg-slate-200 rounded-xs overflow-hidden hidden sm:block">
-                          <div
-                            className="h-full bg-slate-800 rounded-xs"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="font-mono-tabular text-slate-700 font-medium">
-                          {pct}% · {edge.coOccurrenceCount}p
-                        </span>
-                      </div>
+            <div
+              className={
+                showAllBridges
+                  ? 'divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1'
+                  : 'divide-y divide-slate-100'
+              }
+              data-testid="cross-subfield-bridges-list"
+            >
+              {(showAllBridges
+                ? uniqueBridgePairs
+                : uniqueBridgePairs.slice(0, 5)
+              ).map((edge) => {
+                const s = topicMap.get(edge.sourceTopicId);
+                const t = topicMap.get(edge.targetTopicId);
+                if (!s || !t) return null;
+                const pct = Math.round(edge.correlation * 100);
+                return (
+                  <div
+                    key={`${edge.sourceTopicId}-${edge.targetTopicId}`}
+                    className="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-600"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 truncate">
+                      <span
+                        className="w-2 h-2 rounded-xs shrink-0"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSelectTopic(s.id)}
+                        className="font-medium text-slate-800 hover:text-blue-700 hover:underline truncate"
+                      >
+                        {s.shortName}
+                      </button>
+                      <span className="text-slate-400 shrink-0">↔</span>
+                      <span
+                        className="w-2 h-2 rounded-xs shrink-0"
+                        style={{ backgroundColor: t.color }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSelectTopic(t.id)}
+                        className="font-medium text-slate-800 hover:text-blue-700 hover:underline truncate"
+                      >
+                        {t.shortName}
+                      </button>
                     </div>
-                  );
-                })}
+                    <span className="font-mono-tabular text-[11px] text-slate-600 shrink-0">
+                      {pct}% · {edge.coOccurrenceCount}p
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed pt-0.5">
-              Hover any node in the graph to highlight its strongest cross-subfield links, or switch to the 8×8 Matrix to compare all pairwise cosine similarities.
-            </p>
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* THIRD ROW: STANDALONE FULL-WIDTH METHODOLOGY & SYSTEM ARCHITECTURE SECTION */}
+      {/* COLLAPSIBLE METHODOLOGY & CORPUS NOTES (CLEAN, LOW VISUAL WEIGHT) */}
       <section
-        className="bg-white border border-slate-200 rounded-lg p-6 sm:p-7 space-y-6"
+        className="bg-white border border-slate-200 rounded-lg px-5 py-3.5"
         data-testid="methodology-explanation-panel"
-        aria-labelledby="methodology-section-heading"
+        aria-label="Classification and corpus pipeline notes"
       >
-        {/* Section Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-200">
-          <div className="space-y-1">
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-700">
-              <Info className="w-4 h-4 shrink-0" />
-              <span>System Architecture &amp; Topic Modeling Methodology</span>
-            </div>
-            <h2
-              id="methodology-section-heading"
-              className="text-lg sm:text-xl font-bold text-slate-900"
-            >
-              Methodology: LDA Topic Modeling, Why 8 Subfields, &amp; Corpus Preprocessing
-            </h2>
-            <p className="text-sm text-slate-600 max-w-4xl leading-relaxed">
-              How VisLit Explorer classifies 35 years of IEEE VIS literature into 8 interpretable research subfields, computes probabilistic document-topic mixtures, and resolves author and citation entities.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <span className="px-3 py-1.5 text-xs font-mono-tabular font-semibold bg-slate-900 text-white rounded-md">
-              Optimal K = 8 Subfields
+        <button
+          type="button"
+          onClick={() => setShowMethodology((v) => !v)}
+          aria-expanded={showMethodology}
+          className="w-full flex items-center justify-between gap-4 text-left"
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
+            <span className="font-semibold text-slate-900">
+              Classification &amp; Corpus Pipeline
             </span>
-            <span className="px-3 py-1.5 text-xs font-mono-tabular font-semibold bg-blue-50 text-blue-800 border border-blue-200 rounded-md">
-              Coherence Cv = 0.642
+            <span aria-hidden="true" className="text-slate-300">
+              ·
             </span>
-            <span className="px-3 py-1.5 text-xs font-mono-tabular font-medium bg-slate-100 text-slate-700 border border-slate-200 rounded-md">
-              Priors α = 0.125 · β = 0.01
+            <span>
+              Weighted multi-field classifier (Keywords 2.2×, Title 1.6×, Abstract 0.75×, α = 0.125)
+            </span>
+            <span aria-hidden="true" className="text-slate-300">
+              ·
+            </span>
+            <span className="font-mono-tabular">
+              {totalCorpusPapers.toLocaleString()} papers ({minStreamYear}–{maxStreamYear})
             </span>
           </div>
-        </div>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 shrink-0">
+            {showMethodology ? 'Hide Notes' : 'Read Notes'}
+            {showMethodology ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </span>
+        </button>
 
-        {/* 3-Column Visual & Analytical Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          {/* Column 1 (4 Cols): Why K = 8 Subfields + Coherence Curve Visual */}
-          <div className="lg:col-span-4 bg-slate-50/70 border border-slate-200/90 rounded-lg p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="px-2 py-0.5 text-xs font-mono-tabular font-bold bg-blue-600 text-white rounded">
-                  01 · Model Selection
-                </span>
-                <span className="text-xs font-mono-tabular text-slate-500">
-                  K = 5 … 15 Sweep
-                </span>
-              </div>
-              <h3 className="text-base font-bold text-slate-900">
-                Why 8 Subfields (Not 10+ or Raw Keyword Clusters)
-              </h3>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                Sweeping Latent Dirichlet Allocation (LDA) across candidate topic counts{' '}
-                <strong className="font-mono-tabular text-slate-900">K = 4…14</strong> on the IEEE VIS corpus reaches maximum semantic coherence at{' '}
-                <strong className="text-blue-700 font-semibold">K = 8 (C<sub>v</sub> = 0.64)</strong>.
-              </p>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                At <strong className="font-mono-tabular text-slate-900">K ≥ 10</strong>, statistical models over-fragment cohesive research tracks—for example, splitting <em>SciVis</em> into separate GPU ray-casting vs. isosurface clusters, or splitting <em>Interaction</em> into separate grammar vs. brushing clusters. Rather than exposing raw unigram bags-of-words (e.g., <code className="px-1 py-0.5 bg-white border border-slate-200 rounded text-xs">&ldquo;node, edge, force&rdquo;</code>), each latent distribution is aligned with the official <strong>IEEE VIS Area Model</strong> (<em>InfoVis</em>, <em>VAST</em>, <em>SciVis</em>).
+        {showMethodology && (
+          <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-6 text-xs text-slate-600 leading-relaxed">
+            <div className="space-y-1.5">
+              <h4 className="font-semibold text-slate-900">
+                1. Weighted Multi-Field Scoring
+              </h4>
+              <p>
+                Each paper in Vispubdata ({minStreamYear}–{maxStreamYear}) is scored against 8
+                subfield vocabularies aligned with InfoVis, VAST, and SciVis using{' '}
+                <strong className="text-slate-800 font-mono-tabular">
+                  AuthorKeywords × 2.2
+                </strong>
+                ,{' '}
+                <strong className="text-slate-800 font-mono-tabular">
+                  Title × 1.6
+                </strong>
+                ,{' '}
+                <strong className="text-slate-800 font-mono-tabular">
+                  Abstract × 0.75
+                </strong>
+                , and moderate venue priors (SciVis 0.45, VAST 0.5/0.25, InfoVis 0.25).
               </p>
             </div>
-
-            {/* Visual Chart: Semantic Coherence Cv vs Topic Count K */}
-            <div className="bg-white border border-slate-200 rounded-md p-3.5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-800">
-                  LDA Semantic Coherence (C<sub>v</sub>) by Topic Count K
-                </span>
-                <span className="font-mono-tabular text-blue-700 font-bold">
-                  Peak at K = 8
-                </span>
-              </div>
-              <svg
-                viewBox="0 0 320 120"
-                className="w-full h-auto select-none"
-                role="img"
-                aria-label="Chart of semantic coherence peaking at K equals 8 topics"
-              >
-                {/* Horizontal Reference Lines */}
-                <line x1="32" y1="22" x2="304" y2="22" stroke="#E2E8F0" strokeDasharray="2,2" />
-                <line x1="32" y1="56" x2="304" y2="56" stroke="#E2E8F0" strokeDasharray="2,2" />
-                <line x1="32" y1="90" x2="304" y2="90" stroke="#CBD5E1" />
-                <text x="26" y="25" textAnchor="end" className="text-[9px] font-mono-tabular fill-slate-400">
-                  0.65
-                </text>
-                <text x="26" y="59" textAnchor="end" className="text-[9px] font-mono-tabular fill-slate-400">
-                  0.55
-                </text>
-                <text x="26" y="93" textAnchor="end" className="text-[9px] font-mono-tabular fill-slate-400">
-                  0.45
-                </text>
-
-                {/* Highlight Band for K=8 */}
-                <rect x="128" y="10" width="36" height="80" rx="4" fill="#DBEAFE" fillOpacity="0.65" />
-
-                {/* Coherence Polyline: K=4(0.49), K=6(0.56), K=8(0.64), K=10(0.58), K=12(0.52), K=14(0.48) */}
-                <polyline
-                  fill="none"
-                  stroke="#2563EB"
-                  strokeWidth="2.5"
-                  points="52,76 99,52 146,24 193,45 240,66 287,80"
-                />
-
-                {[
-                  { k: 4, x: 52, y: 76, val: '0.49', opt: false },
-                  { k: 6, x: 99, y: 52, val: '0.56', opt: false },
-                  { k: 8, x: 146, y: 24, val: '0.64 ★', opt: true },
-                  { k: 10, x: 193, y: 45, val: '0.58', opt: false },
-                  { k: 12, x: 240, y: 66, val: '0.52', opt: false },
-                  { k: 14, x: 287, y: 80, val: '0.48', opt: false },
-                ].map((pt) => (
-                  <g key={pt.k}>
-                    <circle
-                      cx={pt.x}
-                      cy={pt.y}
-                      r={pt.opt ? 5 : 3.5}
-                      fill={pt.opt ? '#1D4ED8' : '#0F172A'}
-                      stroke="#FFFFFF"
-                      strokeWidth="1.5"
-                    />
-                    <text
-                      x={pt.x}
-                      y={pt.y - 8}
-                      textAnchor="middle"
-                      className={`text-[9px] font-mono-tabular ${
-                        pt.opt ? 'fill-blue-700 font-bold' : 'fill-slate-600'
-                      }`}
-                    >
-                      {pt.val}
-                    </text>
-                    <text
-                      x={pt.x}
-                      y={106}
-                      textAnchor="middle"
-                      className={`text-[10px] font-mono-tabular ${
-                        pt.opt ? 'fill-blue-700 font-bold' : 'fill-slate-500'
-                      }`}
-                    >
-                      K={pt.k}
-                    </text>
-                  </g>
-                ))}
-              </svg>
+            <div className="space-y-1.5">
+              <h4 className="font-semibold text-slate-900">
+                2. Topic Vectors &amp; Correlation Edges
+              </h4>
+              <p>
+                Scores smoothed with Dirichlet baseline{' '}
+                <strong className="text-slate-800 font-mono-tabular">α = 0.125</strong> are
+                L1-normalized into probability vectors θ<sub>d</sub>. Pairwise topic edges
+                reflect cosine similarity across all {totalCorpusPapers.toLocaleString()} vectors
+                (currently{' '}
+                <span className="font-mono-tabular font-semibold text-slate-800">
+                  {correlationLayout.links.length}/{uniqueBridgePairs.length}
+                </span>{' '}
+                active at ≥{Math.round(correlationThreshold * 100)}%).
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="font-semibold text-slate-900">
+                3. Citation &amp; Author Normalization
+              </h4>
+              <p>
+                CrossRef citations fall back cleanly to AMiner counts and 0; trailing DBLP
+                disambiguation digits are stripped on display labels; generic field bigrams are
+                filtered from subfield keywords; and{' '}
+                <code className="text-[11px] bg-slate-100 px-1 rounded">
+                  0.1109/ → 10.1109/
+                </code>{' '}
+                DOI typos are repaired prior to citation graph linking.
+              </p>
             </div>
           </div>
-
-          {/* Column 2 (4 Cols): Probabilistic Topic Fit & Document-Topic Mixture */}
-          <div className="lg:col-span-4 bg-slate-50/70 border border-slate-200/90 rounded-lg p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="px-2 py-0.5 text-xs font-mono-tabular font-bold bg-violet-600 text-white rounded">
-                  02 · Probabilistic Mixture
-                </span>
-                <span className="text-xs font-mono-tabular text-slate-500">
-                  ∑ θ_d,k = 100%
-                </span>
-              </div>
-              <h3 className="text-base font-bold text-slate-900">
-                Document-Topic Distribution (θ<sub>d</sub>) &amp; Cross-Topic Bridges
-              </h3>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                Instead of forcing a rigid binary label, LDA models each paper <em>d</em> as a continuous Dirichlet probability vector{' '}
-                <strong className="font-mono-tabular text-slate-900">
-                  θ<sub>d</sub> = [θ<sub>d,1</sub>, …, θ<sub>d,8</sub>]
-                </strong>{' '}
-                inferred from its title, abstract, and author keywords:
-              </p>
-              <ul className="space-y-2 text-sm text-slate-700 leading-relaxed list-disc pl-4">
-                <li>
-                  <strong className="text-slate-900">Primary Subfield (argmax<sub>k</sub> θ<sub>d,k</sub>):</strong>{' '}
-                  Assigns the paper to its dominant subfield stream and sets its node color across citation graphs.
-                </li>
-                <li>
-                  <strong className="text-slate-900">Cross-Subfield Bridges (θ<sub>d,k</sub> ≥ 20%):</strong>{' '}
-                  Captures interdisciplinary papers that bridge multiple domains (e.g., <em>Visual Analytics &amp; XAI</em> ↔ <em>High-Dimensional Data</em>) and weights the Inter-Topic Correlation network above.
-                </li>
-              </ul>
-            </div>
-
-            {/* Visual Example of a Paper's Topic Mixture Vector */}
-            <div className="bg-white border border-slate-200 rounded-md p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-800">
-                  Example Mixture Vector θ<sub>d</sub> (EnsembleLens, VAST &rsquo;18)
-                </span>
-                <span className="font-mono-tabular text-slate-500">100% Total</span>
-              </div>
-
-              {/* Stacked Mixture Bar */}
-              <div className="w-full h-3.5 bg-slate-100 rounded-xs overflow-hidden flex">
-                <div
-                  style={{ width: '76%', backgroundColor: '#7C3AED' }}
-                  title="Visual Analytics & XAI: 76%"
-                />
-                <div
-                  style={{ width: '18%', backgroundColor: '#D97706' }}
-                  title="High-Dimensional Data: 18%"
-                />
-                <div
-                  style={{ width: '6%', backgroundColor: '#059669' }}
-                  title="Interaction & Toolkits: 6%"
-                />
-              </div>
-
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-slate-800">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-[#7C3AED]" />
-                    Visual Analytics &amp; XAI (Primary argmax)
-                  </span>
-                  <span className="font-mono-tabular font-bold text-slate-900">76%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-[#D97706]" />
-                    High-Dimensional Data (Secondary Bridge)
-                  </span>
-                  <span className="font-mono-tabular font-semibold text-slate-700">18%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 text-slate-600">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-[#059669]" />
-                    Interaction &amp; Toolkits (Minor Component)
-                  </span>
-                  <span className="font-mono-tabular text-slate-600">6%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Column 3 (4 Cols): 4-Stage Data Preprocessing & Entity Resolution Pipeline */}
-          <div className="lg:col-span-4 bg-slate-50/70 border border-slate-200/90 rounded-lg p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="px-2 py-0.5 text-xs font-mono-tabular font-bold bg-emerald-600 text-white rounded">
-                  03 · Data Pipeline
-                </span>
-                <span className="text-xs font-mono-tabular text-slate-500">
-                  Vispubdata 1990–2024
-                </span>
-              </div>
-              <h3 className="text-base font-bold text-slate-900">
-                4-Stage Corpus Preprocessing &amp; Entity Resolution
-              </h3>
-              <p className="text-sm text-slate-700 leading-relaxed">
-                Every publication record undergoes a strict four-stage normalization and verification pipeline before entering the interactive visual analytics views:
-              </p>
-
-              {/* Visual 4-Step Pipeline List */}
-              <div className="space-y-2.5 pt-1">
-                <div className="bg-white border border-slate-200 rounded-md p-3">
-                  <div className="text-xs font-mono-tabular font-bold text-emerald-700">
-                    STAGE 1 · VERIFIED PROCEEDINGS INGESTION
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-700 mt-0.5 leading-snug">
-                    Validates IEEE InfoVis, VAST, SciVis, and VIS records (1990–2024) against published DOIs and CrossRef citation counts.
-                  </p>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-md p-3">
-                  <div className="text-xs font-mono-tabular font-bold text-emerald-700">
-                    STAGE 2 · AUTHOR DISAMBIGUATION &amp; FULL CO-AUTHOR LISTS
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-700 mt-0.5 leading-snug">
-                    Strips trailing DBLP homonym digits for clean UI display (<code className="text-xs bg-slate-100 px-1 rounded">Meng Xia 0002 → Meng Xia</code>) while retaining unique IDs and indexing every co-author in exact publication order.
-                  </p>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-md p-3">
-                  <div className="text-xs font-mono-tabular font-bold text-emerald-700">
-                    STAGE 3 · N-GRAM TOKENIZATION &amp; TITLE FALLBACK
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-700 mt-0.5 leading-snug">
-                    Extracts domain bigrams (<em>volume ray-casting</em>, <em>edge bundling</em>) and falls back to title tokens when archival papers lack abstracts or keywords.
-                  </p>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-md p-3">
-                  <div className="text-xs font-mono-tabular font-bold text-emerald-700">
-                    STAGE 4 · CROSSREF CITATION GRAPH LINKAGE
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-700 mt-0.5 leading-snug">
-                    Resolves in-corpus reference edges to construct Subfield Citation Backbones and 1-Hop Paper Ego-Networks.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </section>
     </div>
   );

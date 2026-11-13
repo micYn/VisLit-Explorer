@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { CitationLink, CitationNode, TopicSummary } from '../types';
-import { getTopicById } from '../utils/analyticsLogic';
+import { buildCitationNetworkTopology, getTopicById } from '../utils/analyticsLogic';
 import { ArrowUpRight, EyeOff, Maximize2, Search, X } from 'lucide-react';
 
 interface CitationNetworkProps {
@@ -24,6 +24,11 @@ interface PositionedLink {
 }
 
 const INLINE_CORE_SUBSET_SIZE = 24;
+const MARKER_RADIUS_BUCKETS = Array.from({ length: 22 }, (_, i) => i + 5);
+
+function getBucketedRadius(r: number): number {
+  return Math.max(5, Math.min(26, Math.round(r)));
+}
 
 function computeGraphLayout(
   activeNodes: Array<CitationNode & { degree: number }>,
@@ -40,8 +45,8 @@ function computeGraphLayout(
   yearScale: d3.ScaleLinear<number, number>;
 } {
   const years = activeNodes.map((n) => n.year);
-  const minYr = d3.min(years) ?? 2000;
-  const maxYr = d3.max(years) ?? 2024;
+  const minYr = d3.min(years) ?? 1990;
+  const maxYr = d3.max(years) ?? 2025;
   const xYrScale = d3
     .scaleLinear()
     .domain([minYr - 1, maxYr + 1])
@@ -82,43 +87,50 @@ function computeGraphLayout(
       target: l.target,
     }));
 
-  const collidePad = isDenseFullGraph ? 11 : 22;
+  const isUltraDense = activeNodes.length > 250;
+  const collidePad = isUltraDense ? 4 : isDenseFullGraph ? 11 : 22;
 
   const simulation = d3
     .forceSimulation<PositionedNode>(clonedNodes)
-    .force(
-      'link',
-      d3
-        .forceLink<PositionedNode, d3.SimulationLinkDatum<PositionedNode>>(simLinks)
-        .id((d) => d.id)
-        .distance(layoutMode === 'chronological' ? 88 : 105)
-        .strength(layoutMode === 'chronological' ? 0.25 : 0.45)
-    )
-    .force(
-      'charge',
-      d3.forceManyBody().strength(
-        layoutMode === 'chronological'
-          ? isDenseFullGraph
-            ? -110
-            : -210
-          : isDenseFullGraph
-          ? -180
-          : -310
-      )
-    )
     .force(
       'collide',
       d3
         .forceCollide<PositionedNode>()
         .radius((d) => rScale(d.citationCount) + collidePad)
         .strength(0.95)
-        .iterations(3)
+        .iterations(isUltraDense ? 2 : 3)
     );
+
+  if (!isUltraDense) {
+    simulation
+      .force(
+        'link',
+        d3
+          .forceLink<PositionedNode, d3.SimulationLinkDatum<PositionedNode>>(simLinks)
+          .id((d) => d.id)
+          .distance(layoutMode === 'chronological' ? 88 : 105)
+          .strength(layoutMode === 'chronological' ? 0.25 : 0.45)
+      )
+      .force(
+        'charge',
+        d3.forceManyBody().strength(
+          layoutMode === 'chronological'
+            ? isDenseFullGraph
+              ? -110
+              : -210
+            : isDenseFullGraph
+            ? -180
+            : -310
+        )
+      );
+  } else if (layoutMode === 'force') {
+    simulation.force('charge', d3.forceManyBody().theta(0.95).strength(-45));
+  }
 
   if (layoutMode === 'chronological') {
     simulation
       .force('x', d3.forceX<PositionedNode>((d) => xYrScale(d.year)).strength(1.0))
-      .force('y', d3.forceY(height / 2 - 10).strength(0.22));
+      .force('y', d3.forceY(height / 2 - 10).strength(isUltraDense ? 0.35 : 0.22));
   } else {
     simulation
       .force('center', d3.forceCenter(width / 2, height / 2 - 8))
@@ -127,7 +139,7 @@ function computeGraphLayout(
   }
 
   simulation.stop();
-  const ticks = isDenseFullGraph ? 140 : 190;
+  const ticks = isUltraDense ? (layoutMode === 'chronological' ? 20 : 40) : isDenseFullGraph ? (activeNodes.length > 150 ? 75 : 135) : 190;
   for (let i = 0; i < ticks; i++) {
     simulation.tick();
     for (const n of clonedNodes) {
@@ -140,23 +152,26 @@ function computeGraphLayout(
     }
   }
 
-  // Vertical de-confliction pass in Time-Aligned mode so labels do not overlap
-  if (layoutMode === 'chronological') {
-    const minVerticalGap = isDenseFullGraph ? 22 : 38;
-    const xProximity = isDenseFullGraph ? 56 : 88;
+  // Vertical de-confliction pass in Time-Aligned mode with O(n log n) early break
+  if (layoutMode === 'chronological' && !isUltraDense) {
+    const minVerticalGap = isDenseFullGraph
+      ? activeNodes.length > 180
+        ? 8
+        : 18
+      : 38;
+    const xProximity = isDenseFullGraph ? 48 : 88;
     for (let pass = 0; pass < 3; pass++) {
       clonedNodes.sort((a, b) => a.y - b.y);
       for (let i = 0; i < clonedNodes.length; i++) {
+        const a = clonedNodes[i];
         for (let j = i + 1; j < clonedNodes.length; j++) {
-          const a = clonedNodes[i];
           const b = clonedNodes[j];
+          const dy = b.y - a.y;
+          if (dy >= minVerticalGap) break;
           if (Math.abs(a.x - b.x) < xProximity) {
-            const dy = b.y - a.y;
-            if (Math.abs(dy) < minVerticalGap) {
-              const push = (minVerticalGap - Math.abs(dy)) / 2 + 1;
-              a.y = Math.max(padY + 10, a.y - push);
-              b.y = Math.min(height - padY - 16, b.y + push);
-            }
+            const push = (minVerticalGap - dy) / 2 + 0.5;
+            a.y = Math.max(padY + 10, a.y - push);
+            b.y = Math.min(height - padY - 16, b.y + push);
           }
         }
       }
@@ -199,10 +214,14 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
   const [zoomScale, setZoomScale] = useState<number>(1);
 
-  // Full Network Modal State
+  // Full Network Modal State + Explicit Visual Density Controls
+  // Defaults to Top 150 for instant render; user can toggle "Render All N Nodes" (HTML5 Canvas >250 nodes)
   const [isFullNetworkModalOpen, setIsFullNetworkModalOpen] = useState<boolean>(false);
   const [modalZoomScale, setModalZoomScale] = useState<number>(1);
   const [modalSearchQuery, setModalSearchQuery] = useState<string>('');
+  const [modalMinCitations, setModalMinCitations] = useState<number>(0);
+  const [modalMaxNodes, setModalMaxNodes] = useState<number | null>(150);
+  const modalCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const width = 660;
   const height = 395;
@@ -215,115 +234,28 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
   // Full topology metrics & degree map across ALL topic papers + cross-topic citation bridges
   const {
     fullActiveNodes,
-    fullActiveLinks,
+    modalDisplayNodes,
+    modalDisplayLinks,
     subsetActiveNodes,
     subsetActiveLinks,
     standaloneCount,
     totalSubfieldCount,
     totalCrossTopicCount,
-  } = useMemo(() => {
-    const validNodeIds = new Set(nodes.map((n) => n.id));
-    const validLinks = links.filter(
-      (l) => validNodeIds.has(l.source) && validNodeIds.has(l.target) && l.source !== l.target
-    );
-
-    const degreeMap = new Map<string, number>();
-    for (const n of nodes) degreeMap.set(n.id, 0);
-    for (const l of validLinks) {
-      degreeMap.set(l.source, (degreeMap.get(l.source) ?? 0) + 1);
-      degreeMap.set(l.target, (degreeMap.get(l.target) ?? 0) + 1);
-    }
-
-    const totalStandalone = nodes.filter((n) => (degreeMap.get(n.id) ?? 0) === 0).length;
-    const subfieldNodesAll = nodes.filter(
-      (n) => !n.isCrossTopic && n.primaryTopicId === activeTopic.id
-    );
-    const crossNodesAll = nodes.filter(
-      (n) => n.isCrossTopic || n.primaryTopicId !== activeTopic.id
-    );
-
-    // 1. Full Graph Nodes (Filtered only by Hide Standalone toggle)
-    const fullFilteredNodes = hideStandalone
-      ? nodes.filter((n) => (degreeMap.get(n.id) ?? 0) > 0)
-      : nodes;
-    const fullKeptIds = new Set(fullFilteredNodes.map((n) => n.id));
-    const fullFilteredLinks = validLinks.filter(
-      (l) => fullKeptIds.has(l.source) && fullKeptIds.has(l.target)
-    );
-
-    // 2. Critical Subset ("Core Citation Backbone") for the inline card so it is never overcrowded
-    // Rank core subfield papers by composite citation impact + degree connectivity
-    const connectedSubfield = [...subfieldNodesAll]
-      .filter((n) => (degreeMap.get(n.id) ?? 0) > 0)
-      .sort(
-        (a, b) =>
-          b.citationCount * (1 + 0.25 * (degreeMap.get(b.id) ?? 0)) -
-          a.citationCount * (1 + 0.25 * (degreeMap.get(a.id) ?? 0))
-      )
-      .slice(0, 16);
-
-    const standaloneSample = hideStandalone
-      ? []
-      : [...subfieldNodesAll]
-          .filter((n) => (degreeMap.get(n.id) ?? 0) === 0)
-          .sort((a, b) => b.citationCount - a.citationCount)
-          .slice(0, 3);
-
-    const coreSubfieldSet = new Set([
-      ...connectedSubfield.map((n) => n.id),
-      ...standaloneSample.map((n) => n.id),
-    ]);
-
-    // Pick top cross-topic bridge papers that directly connect to our core subfield backbone
-    const bridgeCrossNodes = [...crossNodesAll]
-      .filter((cn) =>
-        validLinks.some(
-          (l) =>
-            (l.source === cn.id && coreSubfieldSet.has(l.target)) ||
-            (l.target === cn.id && coreSubfieldSet.has(l.source))
-        )
-      )
-      .sort((a, b) => b.citationCount - a.citationCount)
-      .slice(0, Math.max(4, INLINE_CORE_SUBSET_SIZE - connectedSubfield.length - standaloneSample.length));
-
-    const subsetNodeList = [...connectedSubfield, ...standaloneSample, ...bridgeCrossNodes];
-    const subsetIdSet = new Set(subsetNodeList.map((n) => n.id));
-    const subsetLinks = validLinks.filter(
-      (l) => subsetIdSet.has(l.source) && subsetIdSet.has(l.target)
-    );
-
-    // Recompute degrees within the subset so standalone filtering in the inline view is exact
-    const subsetDegreeMap = new Map<string, number>();
-    for (const n of subsetNodeList) subsetDegreeMap.set(n.id, 0);
-    for (const l of subsetLinks) {
-      subsetDegreeMap.set(l.source, (subsetDegreeMap.get(l.source) ?? 0) + 1);
-      subsetDegreeMap.set(l.target, (subsetDegreeMap.get(l.target) ?? 0) + 1);
-    }
-
-    const finalSubsetNodes = hideStandalone
-      ? subsetNodeList.filter((n) => (subsetDegreeMap.get(n.id) ?? 0) > 0)
-      : subsetNodeList;
-    const finalSubsetIds = new Set(finalSubsetNodes.map((n) => n.id));
-    const finalSubsetLinks = subsetLinks.filter(
-      (l) => finalSubsetIds.has(l.source) && finalSubsetIds.has(l.target)
-    );
-
-    return {
-      fullActiveNodes: fullFilteredNodes.map((n) => ({
-        ...n,
-        degree: degreeMap.get(n.id) ?? 0,
-      })),
-      fullActiveLinks: fullFilteredLinks,
-      subsetActiveNodes: finalSubsetNodes.map((n) => ({
-        ...n,
-        degree: subsetDegreeMap.get(n.id) ?? 0,
-      })),
-      subsetActiveLinks: finalSubsetLinks,
-      standaloneCount: totalStandalone,
-      totalSubfieldCount: subfieldNodesAll.length,
-      totalCrossTopicCount: crossNodesAll.length,
-    };
-  }, [nodes, links, hideStandalone, activeTopic.id]);
+  } = useMemo(
+    () =>
+      buildCitationNetworkTopology(
+        nodes,
+        links,
+        activeTopic.id,
+        hideStandalone,
+        INLINE_CORE_SUBSET_SIZE,
+        {
+          minCitations: modalMinCitations,
+          maxNodes: modalMaxNodes,
+        }
+      ),
+    [nodes, links, hideStandalone, activeTopic.id, modalMinCitations, modalMaxNodes]
+  );
 
   // Inline Core Backbone Layout
   const { positionedNodes, positionedLinks, yearScale } = useMemo(
@@ -345,8 +277,8 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
   const fullGraphLayout = useMemo(() => {
     if (!isFullNetworkModalOpen) return null;
     return computeGraphLayout(
-      fullActiveNodes,
-      fullActiveLinks,
+      modalDisplayNodes,
+      modalDisplayLinks,
       layoutMode,
       modalWidth,
       modalHeight,
@@ -354,29 +286,31 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
       46,
       true
     );
-  }, [isFullNetworkModalOpen, fullActiveNodes, fullActiveLinks, layoutMode]);
+  }, [isFullNetworkModalOpen, modalDisplayNodes, modalDisplayLinks, layoutMode]);
 
   const radiusScale = useMemo(() => {
     if (nodeSizing === 'citations') {
       const maxCite = d3.max(subsetActiveNodes, (d) => d.citationCount) || 1000;
-      return d3.scaleSqrt().domain([0, maxCite]).range([9, 22]);
+      return d3.scaleSqrt().domain([0, maxCite]).range([9, 22]).clamp(true);
     }
-    return d3.scaleLinear().domain([0.05, 1.0]).range([9, 21]);
+    return d3.scaleLinear().domain([0, 1.0]).range([9, 21]).clamp(true);
   }, [subsetActiveNodes, nodeSizing]);
 
   const modalRadiusScale = useMemo(() => {
     if (nodeSizing === 'citations') {
-      const maxCite = d3.max(fullActiveNodes, (d) => d.citationCount) || 1000;
-      return d3.scaleSqrt().domain([0, maxCite]).range([6, 18]);
+      const maxCite = d3.max(modalDisplayNodes, (d) => d.citationCount) || 1000;
+      return d3.scaleSqrt().domain([0, maxCite]).range([5, 18]).clamp(true);
     }
-    return d3.scaleLinear().domain([0.05, 1.0]).range([6, 17]);
-  }, [fullActiveNodes, nodeSizing]);
+    return d3.scaleLinear().domain([0, 1.0]).range([5, 17]).clamp(true);
+  }, [modalDisplayNodes, nodeSizing]);
 
-  // Reset hover and pinned node if topic changes
+  // Reset hover, pinned node, and modal density filters when topic changes
   useEffect(() => {
     setHoveredNodeId(null);
     setPinnedNodeId(null);
     setModalSearchQuery('');
+    setModalMinCitations(0);
+    setModalMaxNodes(150);
   }, [activeTopic.id]);
 
   const activeFocusId = hoveredNodeId || pinnedNodeId || selectedPaperId || null;
@@ -425,6 +359,168 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
     return set;
   }, [fullActiveNodes, modalSearchQuery]);
 
+  const useModalCanvas = Boolean(
+    isFullNetworkModalOpen &&
+      fullGraphLayout &&
+      fullGraphLayout.positionedNodes.length > 250
+  );
+
+  // High-DPI HTML5 Canvas renderer for dense >250-node Full Network views (prevents SVG DOM freezes)
+  useEffect(() => {
+    if (!useModalCanvas || !fullGraphLayout) return;
+    const canvas = modalCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = modalWidth * dpr;
+    canvas.height = modalHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, modalWidth, modalHeight);
+
+    ctx.save();
+    ctx.translate((modalWidth * (1 - modalZoomScale)) / 2, (modalHeight * (1 - modalZoomScale)) / 2);
+    ctx.scale(modalZoomScale, modalZoomScale);
+
+    // 1. Chronological grid lines
+    if (layoutMode === 'chronological') {
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textAlign = 'center';
+      for (const yr of fullGraphLayout.yearScale.ticks(10)) {
+        const xPos = fullGraphLayout.yearScale(yr);
+        ctx.save();
+        ctx.strokeStyle = '#E2E8F0';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(xPos, 16);
+        ctx.lineTo(xPos, modalHeight - 28);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.fillStyle = '#64748B';
+        ctx.fillText(String(yr), xPos, modalHeight - 10);
+      }
+    }
+
+    const hasFocus = Boolean(activeFocusId);
+
+    // 2. Curved citation links (draw subtle background edges first, highlighted edges on top)
+    const drawLinks = (highlightedPass: boolean) => {
+      for (const link of fullGraphLayout.positionedLinks) {
+        const isHighlighted =
+          !hasFocus || link.source.id === activeFocusId || link.target.id === activeFocusId;
+        if (highlightedPass !== (hasFocus && isHighlighted)) continue;
+
+        const sx = link.source.x;
+        const sy = link.source.y;
+        const tx = link.target.x;
+        const ty = link.target.y;
+        const mx = (sx + tx) / 2;
+        const my = (sy + ty) / 2;
+        const dx = tx - sx;
+        const dy = ty - sy;
+        const cx = mx - dy * 0.14;
+        const cy = my + dx * 0.14;
+
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(cx, cy, tx, ty);
+        ctx.strokeStyle = highlightedPass ? '#0F172A' : '#94A3B8';
+        ctx.lineWidth = highlightedPass ? 1.6 : 0.7;
+        ctx.globalAlpha = highlightedPass ? 0.85 : hasFocus ? 0.05 : 0.18;
+        ctx.stroke();
+      }
+    };
+    drawLinks(false);
+    if (hasFocus) drawLinks(true);
+
+    // 3. Paper nodes
+    for (const node of fullGraphLayout.positionedNodes) {
+      const r = modalRadiusScale(
+        nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
+      );
+      const nodeTopic = getTopicById(node.primaryTopicId);
+      const isCrossTopicNode = Boolean(node.isCrossTopic) || node.primaryTopicId !== activeTopic.id;
+      const isNeighbor = !hasFocus || neighborIds.has(node.id);
+      const matchesSearch = !matchingModalIds || matchingModalIds.has(node.id);
+      const isSelected = node.id === activeFocusId;
+
+      ctx.globalAlpha = !matchesSearch ? 0.14 : isNeighbor ? (isCrossTopicNode ? 0.65 : 0.92) : 0.18;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = nodeTopic.color;
+      ctx.fill();
+
+      ctx.globalAlpha = !matchesSearch ? 0.2 : isNeighbor ? 1 : 0.25;
+      ctx.lineWidth = isSelected ? 2.5 : 1;
+      ctx.strokeStyle = isSelected ? '#0F172A' : isCrossTopicNode ? '#334155' : '#FFFFFF';
+      ctx.stroke();
+    }
+
+    // 4. Selective node labels (selected, search matches, or top cited)
+    ctx.globalAlpha = 1;
+    ctx.font = '600 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center';
+    for (const node of fullGraphLayout.positionedNodes) {
+      const isSelected = node.id === activeFocusId;
+      const showLabel =
+        isSelected ||
+        node.citationCount >= 550 ||
+        (matchingModalIds && matchingModalIds.has(node.id));
+      if (!showLabel) continue;
+
+      const r = modalRadiusScale(
+        nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
+      );
+      const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
+      const shortLabel = `${lastName} '${String(node.year).slice(-2)}`;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.strokeText(shortLabel, node.x, node.y + r + 11);
+      ctx.fillStyle = '#0F172A';
+      ctx.fillText(shortLabel, node.x, node.y + r + 11);
+    }
+
+    ctx.restore();
+  }, [
+    useModalCanvas,
+    fullGraphLayout,
+    modalZoomScale,
+    layoutMode,
+    activeFocusId,
+    neighborIds,
+    matchingModalIds,
+    modalRadiusScale,
+    nodeSizing,
+    activeTopic.id,
+  ]);
+
+  const hitTestModalCanvasNode = (e: React.MouseEvent<HTMLCanvasElement>): PositionedNode | null => {
+    const canvas = modalCanvasRef.current;
+    if (!canvas || !fullGraphLayout) return null;
+    const rect = canvas.getBoundingClientRect();
+    const rawX = ((e.clientX - rect.left) / rect.width) * modalWidth;
+    const rawY = ((e.clientY - rect.top) / rect.height) * modalHeight;
+    const graphX = (rawX - (modalWidth * (1 - modalZoomScale)) / 2) / modalZoomScale;
+    const graphY = (rawY - (modalHeight * (1 - modalZoomScale)) / 2) / modalZoomScale;
+
+    let bestNode: PositionedNode | null = null;
+    let bestDist = Infinity;
+    for (const node of fullGraphLayout.positionedNodes) {
+      const r = modalRadiusScale(
+        nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
+      );
+      const d = Math.hypot(node.x - graphX, node.y - graphY);
+      if (d <= r + 7 && d < bestDist) {
+        bestDist = d;
+        bestNode = node;
+      }
+    }
+    return bestNode;
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-5 flex flex-col justify-between h-full">
       {/* Header & Layout Controls */}
@@ -433,7 +529,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-slate-900">
-                Referencing &amp; Citation Network ({totalSubfieldCount} Indexed Landmarks)
+                Referencing &amp; Citation Network ({totalSubfieldCount} Subfield Papers)
               </h3>
               <button
                 type="button"
@@ -447,7 +543,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
             <p className="text-xs text-slate-500 mt-0.5">
               Showing Core Citation Backbone ({positionedNodes.length} key papers ·{' '}
               {positionedLinks.length} links) — expand full network to explore all{' '}
-              {totalSubfieldCount} indexed landmark papers (+{totalCrossTopicCount} cross-topic citations)
+              {totalSubfieldCount} subfield papers (+{totalCrossTopicCount} cross-topic citations)
             </p>
           </div>
 
@@ -596,17 +692,14 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
           aria-label={`Citation network graph for ${activeTopic.name}`}
           data-testid="citation-network-svg"
         >
-          {/* Dynamic per-node SVG markers with exact target radius refX so arrowheads stop right at the outer circle edge */}
+          {/* Bucketed SVG markers by integer radius so arrowheads stop cleanly at the circle rim */}
           <defs>
-            {positionedNodes.map((node) => {
-              const rTarget = radiusScale(
-                nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
-              );
-              const dynamicRefX = Number((9.5 + rTarget + 2).toFixed(1));
+            {MARKER_RADIUS_BUCKETS.map((rb) => {
+              const dynamicRefX = Number((9.5 + rb + 2).toFixed(1));
               return (
-                <React.Fragment key={`marker-${node.id}`}>
+                <React.Fragment key={`marker-bucket-${rb}`}>
                   <marker
-                    id={`citation-arrow-${node.id}`}
+                    id={`citation-arrow-r${rb}`}
                     markerUnits="userSpaceOnUse"
                     viewBox="0 -5 10 10"
                     refX={dynamicRefX}
@@ -618,7 +711,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                     <path d="M0,-4L10,0L0,4" fill="#64748B" />
                   </marker>
                   <marker
-                    id={`citation-arrow-active-${node.id}`}
+                    id={`citation-arrow-active-r${rb}`}
                     markerUnits="userSpaceOnUse"
                     viewBox="0 -5 10 10"
                     refX={dynamicRefX}
@@ -677,10 +770,18 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                 link.source.id === activeFocusId ||
                 link.target.id === activeFocusId;
 
+              const targetRadius = getBucketedRadius(
+                radiusScale(
+                  nodeSizing === 'citations'
+                    ? link.target.citationCount
+                    : link.target.relevanceScore
+                )
+              );
+
               const markerId =
                 isHighlighted && hasFocus
-                  ? `citation-arrow-active-${link.target.id}`
-                  : `citation-arrow-${link.target.id}`;
+                  ? `citation-arrow-active-r${targetRadius}`
+                  : `citation-arrow-r${targetRadius}`;
 
               return (
                 <path
@@ -841,10 +942,11 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
         {/* Subset Summary Footer matching Topic Literature Ranking */}
         <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-3">
           <span className="text-xs text-slate-500 font-mono-tabular">
-            Showing {positionedNodes.length} core backbone papers of {totalSubfieldCount} indexed landmarks (+{totalCrossTopicCount} cross-topic)
+            Showing {positionedNodes.length} core backbone papers of {totalSubfieldCount} subfield papers (+{totalCrossTopicCount} cross-topic)
           </span>
           <button
             type="button"
+            data-testid="expand-full-network-btn"
             onClick={() => setIsFullNetworkModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors shrink-0"
           >
@@ -854,7 +956,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
         </div>
       </div>
 
-      {/* Full Citation Network Explorer Modal (All Subfield Papers + Cross-Topic Citation Bridges) */}
+      {/* Full Citation Network Explorer Modal (All Subfield Papers + Cross-Topic Citation Bridges + Explicit UI Density Controls) */}
       {isFullNetworkModalOpen && fullGraphLayout && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-xs flex items-center justify-center p-4"
@@ -884,7 +986,7 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                     {fullGraphLayout.positionedLinks.length} citation links)
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Covers all {totalSubfieldCount} indexed landmark papers in this subfield (from {activeTopic.paperCount.toLocaleString()} total subfield papers) plus {totalCrossTopicCount} directly cited/citing cross-topic papers
+                    Covers all {totalSubfieldCount} subfield papers plus {totalCrossTopicCount} directly cited/citing cross-topic papers (100% dataset fidelity; adjustable UI density filters below)
                   </p>
                 </div>
               </div>
@@ -977,6 +1079,69 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                   <EyeOff className="w-3.5 h-3.5 shrink-0" />
                   <span>Hide Standalone Papers ({standaloneCount})</span>
                 </button>
+
+                {/* Explicit Visual Density Parameter Controls */}
+                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor="modal-node-limit-select"
+                    className="text-[11px] font-medium text-slate-600 whitespace-nowrap"
+                  >
+                    Display:
+                  </label>
+                  <select
+                    id="modal-node-limit-select"
+                    aria-label="Modal node density limit"
+                    value={modalMaxNodes === null ? 'ALL' : String(modalMaxNodes)}
+                    onChange={(e) =>
+                      setModalMaxNodes(e.target.value === 'ALL' ? null : Number(e.target.value))
+                    }
+                    className="text-xs font-mono-tabular font-semibold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+                  >
+                    <option value="150">Top 150 (Fast)</option>
+                    <option value="60">Top 60</option>
+                    <option value="ALL">All ({fullActiveNodes.length})</option>
+                  </select>
+                </div>
+
+                {fullActiveNodes.length > 150 && (
+                  <button
+                    type="button"
+                    data-testid="modal-render-all-nodes-btn"
+                    onClick={() =>
+                      setModalMaxNodes((prev) => (prev === null ? 150 : null))
+                    }
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap ${
+                      modalMaxNodes === null
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    }`}
+                  >
+                    {modalMaxNodes === null
+                      ? 'Back to Top 150'
+                      : `Render All ${fullActiveNodes.length} Nodes${fullActiveNodes.length > 250 ? ' (Canvas)' : ''}`}
+                  </button>
+                )}
+
+                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor="modal-min-cites-select"
+                    className="text-[11px] font-medium text-slate-600 whitespace-nowrap"
+                  >
+                    Min Cites:
+                  </label>
+                  <select
+                    id="modal-min-cites-select"
+                    aria-label="Modal minimum citations filter"
+                    value={String(modalMinCitations)}
+                    onChange={(e) => setModalMinCitations(Number(e.target.value))}
+                    className="text-xs font-mono-tabular font-semibold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+                  >
+                    <option value="0">All (0+)</option>
+                    <option value="10">≥ 10</option>
+                    <option value="50">≥ 50</option>
+                    <option value="150">≥ 150</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -1014,185 +1179,218 @@ export const CitationNetwork: React.FC<CitationNetworkProps> = ({
                 </button>
               </div>
 
-              <svg
-                viewBox={`0 0 ${modalWidth} ${modalHeight}`}
-                className="w-full h-auto max-h-[58vh] select-none"
-                role="img"
-                aria-label={`Complete citation network graph for ${activeTopic.name}`}
-              >
-                <defs>
-                  {fullGraphLayout.positionedNodes.map((node) => {
-                    const rTarget = modalRadiusScale(
-                      nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
-                    );
-                    const dynamicRefX = Number((8.5 + rTarget + 2).toFixed(1));
-                    return (
-                      <React.Fragment key={`modal-marker-${node.id}`}>
-                        <marker
-                          id={`modal-citation-arrow-${node.id}`}
-                          markerUnits="userSpaceOnUse"
-                          viewBox="0 -5 10 10"
-                          refX={dynamicRefX}
-                          refY={0}
-                          markerWidth={7}
-                          markerHeight={7}
-                          orient="auto"
-                        >
-                          <path d="M0,-4L10,0L0,4" fill="#94A3B8" />
-                        </marker>
-                        <marker
-                          id={`modal-citation-arrow-active-${node.id}`}
-                          markerUnits="userSpaceOnUse"
-                          viewBox="0 -5 10 10"
-                          refX={dynamicRefX}
-                          refY={0}
-                          markerWidth={8}
-                          markerHeight={8}
-                          orient="auto"
-                        >
-                          <path d="M0,-4L10,0L0,4" fill="#0F172A" />
-                        </marker>
-                      </React.Fragment>
-                    );
-                  })}
-                </defs>
-
-                <g
-                  transform={`translate(${(modalWidth * (1 - modalZoomScale)) / 2}, ${
-                    (modalHeight * (1 - modalZoomScale)) / 2
-                  }) scale(${modalZoomScale})`}
+              {useModalCanvas ? (
+                <canvas
+                  ref={modalCanvasRef}
+                  data-testid="full-network-canvas"
+                  role="img"
+                  aria-label={`Complete citation network canvas for ${activeTopic.name} (${fullGraphLayout.positionedNodes.length} nodes)`}
+                  className="w-full h-auto max-h-[58vh] select-none cursor-pointer block"
+                  onMouseMove={(e) => {
+                    const hit = hitTestModalCanvasNode(e);
+                    setHoveredNodeId(hit ? hit.id : null);
+                  }}
+                  onMouseLeave={() => setHoveredNodeId(null)}
+                  onClick={(e) => {
+                    const hit = hitTestModalCanvasNode(e);
+                    if (hit) {
+                      setPinnedNodeId((prev) => (prev === hit.id ? null : hit.id));
+                    }
+                  }}
+                  onDoubleClick={(e) => {
+                    const hit = hitTestModalCanvasNode(e);
+                    if (hit) {
+                      setIsFullNetworkModalOpen(false);
+                      onSelectPaper(hit.id);
+                    }
+                  }}
+                />
+              ) : (
+                <svg
+                  viewBox={`0 0 ${modalWidth} ${modalHeight}`}
+                  className="w-full h-auto max-h-[58vh] select-none"
+                  role="img"
+                  aria-label={`Complete citation network graph for ${activeTopic.name}`}
                 >
-                  {layoutMode === 'chronological' &&
-                    fullGraphLayout.yearScale.ticks(10).map((yr) => (
-                      <g
-                        key={yr}
-                        transform={`translate(${fullGraphLayout.yearScale(yr)}, 0)`}
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        <line
-                          y1={16}
-                          y2={modalHeight - 28}
-                          stroke="#E2E8F0"
-                          strokeDasharray="3,3"
-                        />
-                        <text
-                          y={modalHeight - 10}
-                          textAnchor="middle"
-                          className="text-[10px] font-mono-tabular fill-slate-500"
-                        >
-                          {yr}
-                        </text>
-                      </g>
-                    ))}
-
-                  {fullGraphLayout.positionedLinks.map((link, idx) => {
-                    const dx = link.target.x - link.source.x;
-                    const dy = link.target.y - link.source.y;
-                    const dr = Math.sqrt(dx * dx + dy * dy) * 1.35;
-                    const pathD = `M${link.source.x},${link.source.y}A${dr},${dr} 0 0,1 ${link.target.x},${link.target.y}`;
-
-                    const hasFocus = Boolean(activeFocusId);
-                    const isHighlighted =
-                      !hasFocus ||
-                      link.source.id === activeFocusId ||
-                      link.target.id === activeFocusId;
-
-                    const markerId =
-                      isHighlighted && hasFocus
-                        ? `modal-citation-arrow-active-${link.target.id}`
-                        : `modal-citation-arrow-${link.target.id}`;
-
-                    return (
-                      <path
-                        key={`modal-${link.source.id}->${link.target.id}-${idx}`}
-                        d={pathD}
-                        fill="none"
-                        stroke={isHighlighted && hasFocus ? '#0F172A' : '#94A3B8'}
-                        strokeWidth={isHighlighted && hasFocus ? 1.8 : 1.0}
-                        strokeOpacity={isHighlighted ? (hasFocus ? 0.85 : 0.42) : 0.1}
-                        markerEnd={`url(#${markerId})`}
-                        style={{ pointerEvents: 'none' }}
-                      />
-                    );
-                  })}
-
-                  {fullGraphLayout.positionedNodes.map((node) => {
-                    const r = modalRadiusScale(
-                      nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
-                    );
-                    const nodeTopic = getTopicById(node.primaryTopicId);
-                    const isCrossTopicNode =
-                      Boolean(node.isCrossTopic) || node.primaryTopicId !== activeTopic.id;
-                    const hasFocus = Boolean(activeFocusId);
-                    const isNeighbor = !hasFocus || neighborIds.has(node.id);
-                    const matchesSearch = !matchingModalIds || matchingModalIds.has(node.id);
-                    const isSelected = node.id === activeFocusId;
-
-                    const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
-                    const shortLabel = `${lastName} '${String(node.year).slice(-2)}`;
-                    const showLabel =
-                      isSelected ||
-                      node.citationCount >= 550 ||
-                      (matchingModalIds && matchingModalIds.has(node.id));
-
-                    return (
-                      <g
-                        key={`modal-node-${node.id}`}
-                        transform={`translate(${node.x}, ${node.y})`}
-                        className="cursor-pointer transition-opacity duration-150"
-                        style={{
-                          opacity: !matchesSearch
-                            ? 0.14
-                            : isNeighbor
-                            ? 1
-                            : 0.22,
-                        }}
-                        onMouseEnter={() => setHoveredNodeId(node.id)}
-                        onMouseLeave={() => setHoveredNodeId(null)}
-                        onClick={() =>
-                          setPinnedNodeId((prev) => (prev === node.id ? null : node.id))
-                        }
-                        onDoubleClick={() => {
-                          setIsFullNetworkModalOpen(false);
-                          onSelectPaper(node.id);
-                        }}
-                      >
-                        <circle r={r + 8} fill="transparent" opacity={0} />
-                        <circle
-                          r={r}
-                          fill={nodeTopic.color}
-                          fillOpacity={isCrossTopicNode ? 0.55 : 0.92}
-                          stroke={
-                            isSelected
-                              ? '#0F172A'
-                              : isCrossTopicNode
-                              ? '#334155'
-                              : '#FFFFFF'
-                          }
-                          strokeWidth={isSelected ? 2.5 : 1.4}
-                          strokeDasharray={isCrossTopicNode && !isSelected ? '3,2' : undefined}
-                        />
-                        {showLabel && (
-                          <text
-                            y={r + 11}
-                            textAnchor="middle"
-                            style={{
-                              paintOrder: 'stroke fill',
-                              stroke: '#ffffff',
-                              strokeWidth: '3px',
-                              strokeLinejoin: 'round',
-                              pointerEvents: 'none',
-                            }}
-                            className="text-[9.5px] font-mono-tabular font-semibold fill-slate-900 pointer-events-none"
+                  <defs>
+                    {MARKER_RADIUS_BUCKETS.map((rb) => {
+                      const dynamicRefX = Number((8.5 + rb + 2).toFixed(1));
+                      return (
+                        <React.Fragment key={`modal-marker-bucket-${rb}`}>
+                          <marker
+                            id={`modal-citation-arrow-r${rb}`}
+                            markerUnits="userSpaceOnUse"
+                            viewBox="0 -5 10 10"
+                            refX={dynamicRefX}
+                            refY={0}
+                            markerWidth={7}
+                            markerHeight={7}
+                            orient="auto"
                           >
-                            {shortLabel}
+                            <path d="M0,-4L10,0L0,4" fill="#94A3B8" />
+                          </marker>
+                          <marker
+                            id={`modal-citation-arrow-active-r${rb}`}
+                            markerUnits="userSpaceOnUse"
+                            viewBox="0 -5 10 10"
+                            refX={dynamicRefX}
+                            refY={0}
+                            markerWidth={8}
+                            markerHeight={8}
+                            orient="auto"
+                          >
+                            <path d="M0,-4L10,0L0,4" fill="#0F172A" />
+                          </marker>
+                        </React.Fragment>
+                      );
+                    })}
+                  </defs>
+
+                  <g
+                    transform={`translate(${(modalWidth * (1 - modalZoomScale)) / 2}, ${
+                      (modalHeight * (1 - modalZoomScale)) / 2
+                    }) scale(${modalZoomScale})`}
+                  >
+                    {layoutMode === 'chronological' &&
+                      fullGraphLayout.yearScale.ticks(10).map((yr) => (
+                        <g
+                          key={yr}
+                          transform={`translate(${fullGraphLayout.yearScale(yr)}, 0)`}
+                          style={{ pointerEvents: 'none' }}
+                        >
+                          <line
+                            y1={16}
+                            y2={modalHeight - 28}
+                            stroke="#E2E8F0"
+                            strokeDasharray="3,3"
+                          />
+                          <text
+                            y={modalHeight - 10}
+                            textAnchor="middle"
+                            className="text-[10px] font-mono-tabular fill-slate-500"
+                          >
+                            {yr}
                           </text>
-                        )}
-                      </g>
-                    );
-                  })}
-                </g>
-              </svg>
+                        </g>
+                      ))}
+
+                    {fullGraphLayout.positionedLinks.map((link, idx) => {
+                      const dx = link.target.x - link.source.x;
+                      const dy = link.target.y - link.source.y;
+                      const dr = Math.sqrt(dx * dx + dy * dy) * 1.35;
+                      const pathD = `M${link.source.x},${link.source.y}A${dr},${dr} 0 0,1 ${link.target.x},${link.target.y}`;
+
+                      const hasFocus = Boolean(activeFocusId);
+                      const isHighlighted =
+                        !hasFocus ||
+                        link.source.id === activeFocusId ||
+                        link.target.id === activeFocusId;
+
+                      const targetRadius = getBucketedRadius(
+                        modalRadiusScale(
+                          nodeSizing === 'citations'
+                            ? link.target.citationCount
+                            : link.target.relevanceScore
+                        )
+                      );
+
+                      const markerId =
+                        isHighlighted && hasFocus
+                          ? `modal-citation-arrow-active-r${targetRadius}`
+                          : `modal-citation-arrow-r${targetRadius}`;
+
+                      return (
+                        <path
+                          key={`modal-${link.source.id}->${link.target.id}-${idx}`}
+                          d={pathD}
+                          fill="none"
+                          stroke={isHighlighted && hasFocus ? '#0F172A' : '#94A3B8'}
+                          strokeWidth={isHighlighted && hasFocus ? 1.8 : 0.9}
+                          strokeOpacity={isHighlighted ? (hasFocus ? 0.85 : 0.36) : 0.08}
+                          markerEnd={`url(#${markerId})`}
+                          style={{ pointerEvents: 'none' }}
+                        />
+                      );
+                    })}
+
+                    {fullGraphLayout.positionedNodes.map((node) => {
+                      const r = modalRadiusScale(
+                        nodeSizing === 'citations' ? node.citationCount : node.relevanceScore
+                      );
+                      const nodeTopic = getTopicById(node.primaryTopicId);
+                      const isCrossTopicNode =
+                        Boolean(node.isCrossTopic) || node.primaryTopicId !== activeTopic.id;
+                      const hasFocus = Boolean(activeFocusId);
+                      const isNeighbor = !hasFocus || neighborIds.has(node.id);
+                      const matchesSearch = !matchingModalIds || matchingModalIds.has(node.id);
+                      const isSelected = node.id === activeFocusId;
+
+                      const lastName = node.authors[0]?.split(' ').pop() || 'VIS';
+                      const shortLabel = `${lastName} '${String(node.year).slice(-2)}`;
+                      const showLabel =
+                        isSelected ||
+                        node.citationCount >= 550 ||
+                        (matchingModalIds && matchingModalIds.has(node.id));
+
+                      return (
+                        <g
+                          key={`modal-node-${node.id}`}
+                          transform={`translate(${node.x}, ${node.y})`}
+                          className="cursor-pointer transition-opacity duration-150"
+                          style={{
+                            opacity: !matchesSearch
+                              ? 0.14
+                              : isNeighbor
+                              ? 1
+                              : 0.22,
+                          }}
+                          onMouseEnter={() => setHoveredNodeId(node.id)}
+                          onMouseLeave={() => setHoveredNodeId(null)}
+                          onClick={() =>
+                            setPinnedNodeId((prev) => (prev === node.id ? null : node.id))
+                          }
+                          onDoubleClick={() => {
+                            setIsFullNetworkModalOpen(false);
+                            onSelectPaper(node.id);
+                          }}
+                        >
+                          <circle r={r + 8} fill="transparent" opacity={0} />
+                          <circle
+                            r={r}
+                            fill={nodeTopic.color}
+                            fillOpacity={isCrossTopicNode ? 0.55 : 0.92}
+                            stroke={
+                              isSelected
+                                ? '#0F172A'
+                                : isCrossTopicNode
+                                ? '#334155'
+                                : '#FFFFFF'
+                            }
+                            strokeWidth={isSelected ? 2.5 : 1.4}
+                            strokeDasharray={isCrossTopicNode && !isSelected ? '3,2' : undefined}
+                          />
+                          {showLabel && (
+                            <text
+                              y={r + 11}
+                              textAnchor="middle"
+                              style={{
+                                paintOrder: 'stroke fill',
+                                stroke: '#ffffff',
+                                strokeWidth: '3px',
+                                strokeLinejoin: 'round',
+                                pointerEvents: 'none',
+                              }}
+                              className="text-[9.5px] font-mono-tabular font-semibold fill-slate-900 pointer-events-none"
+                            >
+                              {shortLabel}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </g>
+                </svg>
+              )}
             </div>
 
             {/* Modal Footer Inspector */}

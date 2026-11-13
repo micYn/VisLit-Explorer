@@ -5,12 +5,35 @@ import {
   YearlyTopicPrevalence,
 } from '../types';
 
+export interface VispubJsonRecord {
+  doi: string;
+  title: string;
+  year: number;
+  conference: string; // "Vis" | "InfoVis" | "VAST" | "SciVis"
+  paperType: string; // "J" | "C" | "M"
+  link: string;
+  abstract: string;
+  authors: string[];
+  affiliations: string[];
+  keywords: string[];
+  internalReferences: string[];
+  citations: number;
+  citationCountCrossRef: number | null;
+  aminerCitationCount: number | null;
+  downloadsXplore: number;
+  award: string | null;
+}
+
 export interface RawPaperRecord {
   id: string;
   title: string;
   year: number;
   venue: 'IEEE InfoVis' | 'IEEE VAST' | 'IEEE SciVis' | 'IEEE VIS';
   doi: string;
+  url?: string;
+  paperType?: string;
+  award?: string | null;
+  downloadsXplore?: number;
   citationCount: number;
   primaryTopicId: string;
   topicScores: Record<string, number>;
@@ -20,2974 +43,1109 @@ export interface RawPaperRecord {
   references: string[];
 }
 
-export const AUTHORS: Record<
-  string,
-  AuthorBrief & {
-    hIndex: number;
-    visPaperCount?: number;
-    visCitations?: number;
-    primaryTopicId: string;
-    activeStartYear: number;
-    activeEndYear: number;
-  }
-> = {
-  'jeffrey-heer': {
-    id: 'jeffrey-heer',
-    name: 'Jeffrey Heer',
-    rawName: 'Jeffrey Heer',
-    affiliation: 'University of Washington (Interactive Data Lab)',
-    hIndex: 78,
-    visPaperCount: 88,
-    visCitations: 46850,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2004,
-    activeEndYear: 2024,
-  },
-  'tamara-munzner': {
-    id: 'tamara-munzner',
-    name: 'Tamara Munzner',
-    rawName: 'Tamara Munzner',
-    affiliation: 'University of British Columbia',
-    hIndex: 64,
-    visPaperCount: 68,
-    visCitations: 18420,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 1995,
-    activeEndYear: 2024,
-  },
-  'hanspeter-pfister': {
-    id: 'hanspeter-pfister',
-    name: 'Hanspeter Pfister',
-    rawName: 'Hanspeter Pfister',
-    affiliation: 'Harvard John A. Paulson School of Engineering',
-    hIndex: 72,
-    visPaperCount: 134,
-    visCitations: 24680,
-    primaryTopicId: 'topic-1',
-    activeStartYear: 1996,
-    activeEndYear: 2024,
-  },
-  'kwan-liu-ma': {
-    id: 'kwan-liu-ma',
-    name: 'Kwan-Liu Ma',
-    rawName: 'Kwan-Liu Ma 0001',
-    affiliation: 'University of California, Davis',
-    hIndex: 69,
-    visPaperCount: 162,
-    visCitations: 19840,
-    primaryTopicId: 'topic-1',
-    activeStartYear: 1993,
-    activeEndYear: 2024,
-  },
-  'arvind-satyanarayan': {
-    id: 'arvind-satyanarayan',
-    name: 'Arvind Satyanarayan',
-    rawName: 'Arvind Satyanarayan',
-    affiliation: 'Massachusetts Institute of Technology (MIT CSAIL)',
-    hIndex: 38,
-    visPaperCount: 38,
-    visCitations: 8920,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2013,
-    activeEndYear: 2024,
-  },
-  'hendrik-strobelt': {
-    id: 'hendrik-strobelt',
-    name: 'Hendrik Strobelt',
-    rawName: 'Hendrik Strobelt',
-    affiliation: 'MIT-IBM Watson AI Lab',
-    hIndex: 42,
-    visPaperCount: 44,
-    visCitations: 8650,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2012,
-    activeEndYear: 2024,
-  },
-  'jarke-van-wijk': {
-    id: 'jarke-van-wijk',
-    name: 'Jarke J. van Wijk',
-    rawName: 'Jarke J. van Wijk',
-    affiliation: 'Eindhoven University of Technology',
-    hIndex: 61,
-    visPaperCount: 58,
-    visCitations: 15480,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 1991,
-    activeEndYear: 2022,
-  },
-  'daniel-keim': {
-    id: 'daniel-keim',
-    name: 'Daniel A. Keim',
-    rawName: 'Daniel A. Keim',
-    affiliation: 'University of Konstanz',
-    hIndex: 74,
-    visPaperCount: 112,
-    visCitations: 21350,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 1994,
-    activeEndYear: 2024,
-  },
-  'catherine-plaisant': {
-    id: 'catherine-plaisant',
-    name: 'Catherine Plaisant',
-    rawName: 'Catherine Plaisant',
-    affiliation: 'University of Maryland (HCIL)',
-    hIndex: 66,
-    visPaperCount: 66,
-    visCitations: 17640,
-    primaryTopicId: 'topic-6',
-    activeStartYear: 1992,
-    activeEndYear: 2023,
-  },
-  'miriah-meyer': {
-    id: 'miriah-meyer',
-    name: 'Miriah Meyer',
-    rawName: 'Miriah Meyer',
-    affiliation: 'Linköping University',
-    hIndex: 41,
-    visPaperCount: 39,
-    visCitations: 6420,
-    primaryTopicId: 'topic-4',
-    activeStartYear: 2007,
-    activeEndYear: 2024,
-  },
-  'jessica-hullman': {
-    id: 'jessica-hullman',
-    name: 'Jessica Hullman',
-    rawName: 'Jessica Hullman',
-    affiliation: 'Northwestern University',
-    hIndex: 44,
-    visPaperCount: 46,
-    visCitations: 6890,
-    primaryTopicId: 'topic-4',
-    activeStartYear: 2011,
-    activeEndYear: 2024,
-  },
-  'gennady-andrienko': {
-    id: 'gennady-andrienko',
-    name: 'Gennady Andrienko',
-    rawName: 'Gennady Andrienko',
-    affiliation: 'Fraunhofer IAIS & City, University of London',
-    hIndex: 63,
-    visPaperCount: 94,
-    visCitations: 14820,
-    primaryTopicId: 'topic-6',
-    activeStartYear: 1998,
-    activeEndYear: 2024,
-  },
-  'meng-xia-0002': {
-    id: 'meng-xia-0002',
-    name: 'Meng Xia 0002',
-    rawName: 'Meng Xia 0002',
-    affiliation: 'Texas A&M University & HKUST / CMU / KAIST',
-    hIndex: 24,
-    visPaperCount: 18,
-    visCitations: 1640,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2018,
-    activeEndYear: 2024,
-  },
-  'huamin-qu-0001': {
-    id: 'huamin-qu-0001',
-    name: 'Huamin Qu 0001',
-    rawName: 'Huamin Qu 0001',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 68,
-    visPaperCount: 148,
-    visCitations: 18920,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2004,
-    activeEndYear: 2024,
-  },
-  'shixia-liu-0001': {
-    id: 'shixia-liu-0001',
-    name: 'Shixia Liu 0001',
-    rawName: 'Shixia Liu 0001',
-    affiliation: 'Tsinghua University',
-    hIndex: 55,
-    visPaperCount: 82,
-    visCitations: 12450,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2010,
-    activeEndYear: 2024,
-  },
-  'wei-chen-0001': {
-    id: 'wei-chen-0001',
-    name: 'Wei Chen 0001',
-    rawName: 'Wei Chen 0001',
-    affiliation: 'Zhejiang University (State Key Lab of CAD&CG)',
-    hIndex: 52,
-    visPaperCount: 96,
-    visCitations: 10680,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 2006,
-    activeEndYear: 2024,
-  },
-  'niklas-elmqvist': {
-    id: 'niklas-elmqvist',
-    name: 'Niklas Elmqvist',
-    rawName: 'Niklas Elmqvist',
-    affiliation: 'Aarhus University & University of Maryland',
-    hIndex: 54,
-    visPaperCount: 86,
-    visCitations: 11920,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2006,
-    activeEndYear: 2024,
-  },
-  'bongshin-lee': {
-    id: 'bongshin-lee',
-    name: 'Bongshin Lee',
-    rawName: 'Bongshin Lee 0001',
-    affiliation: 'Yonsei University & Microsoft Research',
-    hIndex: 58,
-    visPaperCount: 76,
-    visCitations: 12840,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2005,
-    activeEndYear: 2024,
-  },
-  'xiaojuan-ma': {
-    id: 'xiaojuan-ma',
-    name: 'Xiaojuan Ma',
-    rawName: 'Xiaojuan Ma',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 48,
-    visPaperCount: 34,
-    visCitations: 4860,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2015,
-    activeEndYear: 2024,
-  },
-  'yong-wang': {
-    id: 'yong-wang',
-    name: 'Yong Wang',
-    rawName: 'Yong Wang 0012',
-    affiliation: 'Nanyang Technological University & SMU / HKUST',
-    hIndex: 32,
-    visPaperCount: 41,
-    visCitations: 4380,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2015,
-    activeEndYear: 2024,
-  },
-  'danny-holten': {
-    id: 'danny-holten',
-    name: 'Danny Holten',
-    rawName: 'Danny Holten',
-    affiliation: 'Eindhoven University of Technology',
-    hIndex: 22,
-    visPaperCount: 14,
-    visCitations: 4890,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 2005,
-    activeEndYear: 2014,
-  },
-  'ben-shneiderman': {
-    id: 'ben-shneiderman',
-    name: 'Ben Shneiderman',
-    rawName: 'Ben Shneiderman',
-    affiliation: 'University of Maryland (HCIL)',
-    hIndex: 124,
-    visPaperCount: 74,
-    visCitations: 34600,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 1990,
-    activeEndYear: 2024,
-  },
-  'john-stasko': {
-    id: 'john-stasko',
-    name: 'John T. Stasko',
-    rawName: 'John T. Stasko',
-    affiliation: 'Georgia Institute of Technology',
-    hIndex: 68,
-    visPaperCount: 79,
-    visCitations: 14920,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 1993,
-    activeEndYear: 2024,
-  },
-  'nan-cao': {
-    id: 'nan-cao',
-    name: 'Nan Cao',
-    rawName: 'Nan Cao 0001',
-    affiliation: 'Tongji University (iDVx Lab)',
-    hIndex: 43,
-    visPaperCount: 58,
-    visCitations: 7140,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2010,
-    activeEndYear: 2024,
-  },
-  'duen-horng-chau': {
-    id: 'duen-horng-chau',
-    name: 'Duen Horng Chau',
-    rawName: 'Duen Horng Chau',
-    affiliation: 'Georgia Institute of Technology (Polo Club of Data Science)',
-    hIndex: 62,
-    visPaperCount: 54,
-    visCitations: 9850,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2008,
-    activeEndYear: 2024,
-  },
-  'minsuk-kahng': {
-    id: 'minsuk-kahng',
-    name: 'Minsuk Kahng',
-    rawName: 'Minsuk Kahng',
-    affiliation: 'Google Research & Oregon State University',
-    hIndex: 28,
-    visPaperCount: 22,
-    visCitations: 3840,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2016,
-    activeEndYear: 2024,
-  },
-  'fred-hohman': {
-    id: 'fred-hohman',
-    name: 'Fred Hohman',
-    rawName: 'Fred Hohman',
-    affiliation: 'Apple Machine Learning Research & Georgia Tech',
-    hIndex: 31,
-    visPaperCount: 24,
-    visCitations: 4120,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2017,
-    activeEndYear: 2024,
-  },
-  'haekyu-park': {
-    id: 'haekyu-park',
-    name: 'Haekyu Park',
-    rawName: 'Haekyu Park',
-    affiliation: 'Georgia Institute of Technology',
-    hIndex: 18,
-    visPaperCount: 12,
-    visCitations: 1280,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2019,
-    activeEndYear: 2024,
-  },
-  'martin-wattenberg': {
-    id: 'martin-wattenberg',
-    name: 'Martin Wattenberg',
-    rawName: 'Martin Wattenberg',
-    affiliation: 'Harvard University & Google Research (PAIR)',
-    hIndex: 76,
-    visPaperCount: 48,
-    visCitations: 16920,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 1998,
-    activeEndYear: 2024,
-  },
-  'fernanda-viegas': {
-    id: 'fernanda-viegas',
-    name: 'Fernanda Viégas',
-    rawName: 'Fernanda Viégas',
-    affiliation: 'Harvard University & Google Research (PAIR)',
-    hIndex: 74,
-    visPaperCount: 48,
-    visCitations: 16640,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 1999,
-    activeEndYear: 2024,
-  },
-  'enrico-bertini': {
-    id: 'enrico-bertini',
-    name: 'Enrico Bertini',
-    rawName: 'Enrico Bertini',
-    affiliation: 'Northeastern University & NYU',
-    hIndex: 49,
-    visPaperCount: 56,
-    visCitations: 7850,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2006,
-    activeEndYear: 2024,
-  },
-  'adam-perer': {
-    id: 'adam-perer',
-    name: 'Adam Perer',
-    rawName: 'Adam Perer',
-    affiliation: 'Carnegie Mellon University (HCII)',
-    hIndex: 42,
-    visPaperCount: 42,
-    visCitations: 6180,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2006,
-    activeEndYear: 2024,
-  },
-  'ke-xu': {
-    id: 'ke-xu',
-    name: 'Ke Xu',
-    rawName: 'Ke Xu',
-    affiliation: 'Tongji University (iDVx Lab) & NYU',
-    hIndex: 16,
-    visPaperCount: 14,
-    visCitations: 980,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2017,
-    activeEndYear: 2024,
-  },
-  'xing-mu': {
-    id: 'xing-mu',
-    name: 'Xing Mu',
-    rawName: 'Xing Mu',
-    affiliation: 'Tongji University (iDVx Lab)',
-    hIndex: 12,
-    visPaperCount: 6,
-    visCitations: 420,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2017,
-    activeEndYear: 2022,
-  },
-  'yun-wang': {
-    id: 'yun-wang',
-    name: 'Yun Wang',
-    rawName: 'Yun Wang',
-    affiliation: 'Microsoft Research Asia (MSRA)',
-    hIndex: 31,
-    visPaperCount: 32,
-    visCitations: 3640,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2015,
-    activeEndYear: 2024,
-  },
-  'mingfei-sun': {
-    id: 'mingfei-sun',
-    name: 'Mingfei Sun',
-    rawName: 'Mingfei Sun',
-    affiliation: 'University of Manchester & HKUST',
-    hIndex: 18,
-    visPaperCount: 11,
-    visCitations: 890,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2018,
-    activeEndYear: 2024,
-  },
-  'huan-wei': {
-    id: 'huan-wei',
-    name: 'Huan Wei',
-    rawName: 'Huan Wei',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 14,
-    visPaperCount: 8,
-    visCitations: 560,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2018,
-    activeEndYear: 2023,
-  },
-  'qing-chen': {
-    id: 'qing-chen',
-    name: 'Qing Chen',
-    rawName: 'Qing Chen',
-    affiliation: 'Tongji University (iDVx Lab) & HKUST',
-    hIndex: 25,
-    visPaperCount: 26,
-    visCitations: 2340,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2016,
-    activeEndYear: 2024,
-  },
-  'lei-shi': {
-    id: 'lei-shi',
-    name: 'Lei Shi',
-    rawName: 'Lei Shi',
-    affiliation: 'Beihang University & CAS',
-    hIndex: 30,
-    visPaperCount: 28,
-    visCitations: 2890,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 2009,
-    activeEndYear: 2024,
-  },
-  'reshika-velumani': {
-    id: 'reshika-velumani',
-    name: 'Reshika P. Velumani',
-    rawName: 'Reshika P. Velumani',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 10,
-    visPaperCount: 5,
-    visCitations: 310,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2019,
-    activeEndYear: 2023,
-  },
-  'wai-tong': {
-    id: 'wai-tong',
-    name: 'Wai Tong',
-    rawName: 'Wai Tong',
-    affiliation: 'Texas A&M University & HKUST',
-    hIndex: 15,
-    visPaperCount: 14,
-    visCitations: 780,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2019,
-    activeEndYear: 2024,
-  },
-  'zhutian-chen': {
-    id: 'zhutian-chen',
-    name: 'Zhutian Chen',
-    rawName: 'Zhutian Chen',
-    affiliation: 'University of Minnesota & Harvard / HKUST',
-    hIndex: 24,
-    visPaperCount: 24,
-    visCitations: 2150,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2017,
-    activeEndYear: 2024,
-  },
-  'leo-yu-ho-lo': {
-    id: 'leo-yu-ho-lo',
-    name: 'Leo Yu-Ho Lo',
-    rawName: 'Leo Yu-Ho Lo',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 14,
-    visPaperCount: 12,
-    visCitations: 690,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2019,
-    activeEndYear: 2024,
-  },
-  'linping-yuan': {
-    id: 'linping-yuan',
-    name: 'Linping Yuan',
-    rawName: 'Linping Yuan',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 15,
-    visPaperCount: 14,
-    visCitations: 840,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2019,
-    activeEndYear: 2024,
-  },
-  'qian-zhu': {
-    id: 'qian-zhu',
-    name: 'Qian Zhu',
-    rawName: 'Qian Zhu',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 12,
-    visPaperCount: 9,
-    visCitations: 480,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2020,
-    activeEndYear: 2024,
-  },
-  'xingbo-wang': {
-    id: 'xingbo-wang',
-    name: 'Xingbo Wang',
-    rawName: 'Xingbo Wang',
-    affiliation: 'Weill Cornell Medicine & HKUST',
-    hIndex: 19,
-    visPaperCount: 16,
-    visCitations: 1120,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2019,
-    activeEndYear: 2024,
-  },
-  'fei-nie': {
-    id: 'fei-nie',
-    name: 'Fei Nie',
-    rawName: 'Fei Nie',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 11,
-    visPaperCount: 6,
-    visCitations: 340,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2020,
-    activeEndYear: 2024,
-  },
-  'yankun-zhao': {
-    id: 'yankun-zhao',
-    name: 'Yankun Zhao',
-    rawName: 'Yankun Zhao',
-    affiliation: 'Hong Kong University of Science and Technology (HKUST)',
-    hIndex: 10,
-    visPaperCount: 5,
-    visCitations: 290,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2020,
-    activeEndYear: 2024,
-  },
-  'jieqiong-zhao': {
-    id: 'jieqiong-zhao',
-    name: 'Jieqiong Zhao',
-    rawName: 'Jieqiong Zhao',
-    affiliation: 'Augusta University & Purdue University',
-    hIndex: 15,
-    visPaperCount: 14,
-    visCitations: 760,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2016,
-    activeEndYear: 2024,
-  },
-  'jianbo-tang': {
-    id: 'jianbo-tang',
-    name: 'Jianbo Tang',
-    rawName: 'Jianbo Tang',
-    affiliation: 'Central South University',
-    hIndex: 14,
-    visPaperCount: 11,
-    visCitations: 620,
-    primaryTopicId: 'topic-6',
-    activeStartYear: 2018,
-    activeEndYear: 2024,
-  },
-  'juho-kim': {
-    id: 'juho-kim',
-    name: 'Juho Kim',
-    rawName: 'Juho Kim',
-    affiliation: 'KAIST (School of Computing)',
-    hIndex: 48,
-    visPaperCount: 28,
-    visCitations: 4950,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2012,
-    activeEndYear: 2024,
-  },
-  'kyungjin-lee': {
-    id: 'kyungjin-lee',
-    name: 'Kyungjin Lee',
-    rawName: 'Kyungjin Lee',
-    affiliation: 'KAIST & Texas A&M University',
-    hIndex: 10,
-    visPaperCount: 5,
-    visCitations: 240,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2022,
-    activeEndYear: 2024,
-  },
-  'chulwoo-kim': {
-    id: 'chulwoo-kim',
-    name: 'Chulwoo Kim',
-    rawName: 'Chulwoo Kim',
-    affiliation: 'KAIST (KIXLAB)',
-    hIndex: 11,
-    visPaperCount: 6,
-    visCitations: 280,
-    primaryTopicId: 'topic-2',
-    activeStartYear: 2021,
-    activeEndYear: 2024,
-  },
-  'kentaro-go': {
-    id: 'kentaro-go',
-    name: 'Kentaro Go',
-    rawName: 'Kentaro Go',
-    affiliation: 'University of Yamanashi',
-    hIndex: 21,
-    visPaperCount: 15,
-    visCitations: 1180,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2000,
-    activeEndYear: 2024,
-  },
-  'michael-bostock': {
-    id: 'michael-bostock',
-    name: 'Michael Bostock',
-    rawName: 'Michael Bostock',
-    affiliation: 'Stanford University & Observable',
-    hIndex: 45,
-    visPaperCount: 12,
-    visCitations: 22450,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2009,
-    activeEndYear: 2024,
-  },
-  'vadim-ogievetsky': {
-    id: 'vadim-ogievetsky',
-    name: 'Vadim Ogievetsky',
-    rawName: 'Vadim Ogievetsky',
-    affiliation: 'Stanford University',
-    hIndex: 24,
-    visPaperCount: 8,
-    visCitations: 19680,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2010,
-    activeEndYear: 2020,
-  },
-  'dominik-moritz': {
-    id: 'dominik-moritz',
-    name: 'Dominik Moritz',
-    rawName: 'Dominik Moritz',
-    affiliation: 'Carnegie Mellon University & University of Washington',
-    hIndex: 36,
-    visPaperCount: 32,
-    visCitations: 5420,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2015,
-    activeEndYear: 2024,
-  },
-  'kanit-wongsuphasawat': {
-    id: 'kanit-wongsuphasawat',
-    name: 'Kanit Wongsuphasawat',
-    rawName: 'Kanit Wongsuphasawat',
-    affiliation: 'University of Washington & Apple',
-    hIndex: 34,
-    visPaperCount: 26,
-    visCitations: 4860,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 2011,
-    activeEndYear: 2024,
-  },
-  'alexander-lex': {
-    id: 'alexander-lex',
-    name: 'Alexander Lex',
-    rawName: 'Alexander Lex',
-    affiliation: 'University of Utah (SCI Institute) & Harvard',
-    hIndex: 44,
-    visPaperCount: 48,
-    visCitations: 7420,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 2010,
-    activeEndYear: 2024,
-  },
-  'nils-gehlenborg': {
-    id: 'nils-gehlenborg',
-    name: 'Nils Gehlenborg',
-    rawName: 'Nils Gehlenborg',
-    affiliation: 'Harvard Medical School',
-    hIndex: 52,
-    visPaperCount: 42,
-    visCitations: 7180,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 2009,
-    activeEndYear: 2024,
-  },
-  'samuel-gratzl': {
-    id: 'samuel-gratzl',
-    name: 'Samuel Gratzl',
-    rawName: 'Samuel Gratzl',
-    affiliation: 'Johannes Kepler University Linz',
-    hIndex: 28,
-    visPaperCount: 24,
-    visCitations: 3480,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 2013,
-    activeEndYear: 2023,
-  },
-  'marc-streit': {
-    id: 'marc-streit',
-    name: 'Marc Streit',
-    rawName: 'Marc Streit',
-    affiliation: 'Johannes Kepler University Linz',
-    hIndex: 42,
-    visPaperCount: 54,
-    visCitations: 6890,
-    primaryTopicId: 'topic-3',
-    activeStartYear: 2008,
-    activeEndYear: 2024,
-  },
-  'edward-segel': {
-    id: 'edward-segel',
-    name: 'Edward Segel',
-    rawName: 'Edward Segel',
-    affiliation: 'Stanford University',
-    hIndex: 18,
-    visPaperCount: 6,
-    visCitations: 3120,
-    primaryTopicId: 'topic-7',
-    activeStartYear: 2010,
-    activeEndYear: 2018,
-  },
-  'mark-bruls': {
-    id: 'mark-bruls',
-    name: 'Mark Bruls',
-    rawName: 'Mark Bruls',
-    affiliation: 'Eindhoven University of Technology',
-    hIndex: 16,
-    visPaperCount: 8,
-    visCitations: 2680,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 1999,
-    activeEndYear: 2010,
-  },
-  'kees-huizing': {
-    id: 'kees-huizing',
-    name: 'Kees Huizing',
-    rawName: 'Kees Huizing',
-    affiliation: 'Eindhoven University of Technology',
-    hIndex: 26,
-    visPaperCount: 18,
-    visCitations: 3420,
-    primaryTopicId: 'topic-0',
-    activeStartYear: 1995,
-    activeEndYear: 2020,
-  },
-  'natalia-andrienko': {
-    id: 'natalia-andrienko',
-    name: 'Natalia Andrienko',
-    rawName: 'Natalia Andrienko',
-    affiliation: 'Fraunhofer IAIS & City, University of London',
-    hIndex: 62,
-    visPaperCount: 94,
-    visCitations: 14650,
-    primaryTopicId: 'topic-6',
-    activeStartYear: 1998,
-    activeEndYear: 2024,
-  },
-  'jean-daniel-fekete': {
-    id: 'jean-daniel-fekete',
-    name: 'Jean-Daniel Fekete',
-    rawName: 'Jean-Daniel Fekete',
-    affiliation: 'Inria & Université Paris-Saclay (AVIZ)',
-    hIndex: 60,
-    visPaperCount: 72,
-    visCitations: 12180,
-    primaryTopicId: 'topic-5',
-    activeStartYear: 1998,
-    activeEndYear: 2024,
-  },
+export type CorpusAuthorRecord = AuthorBrief & {
+  hIndex: number;
+  visPaperCount: number;
+  visCitations: number;
+  primaryTopicId: string;
+  activeStartYear: number;
+  activeEndYear: number;
 };
 
-/**
- * 100% Authentic, Verifiable IEEE VIS / TVCG / InfoVis / VAST / SciVis Publications.
- * Every paper has its real published title, DOI, publication year, venue, and verified author list.
- * Zero procedurally synthesized or misattributed papers exist in this corpus.
- */
-export const CURATED_RAW_PAPERS: RawPaperRecord[] = [
-  // ===========================================================================
-  // TOPIC 0: Graph & Network Visualization (13 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-1997-h3',
-    title: 'H3: Laying Out Large Directed Graphs in 3D Hyperbolic Space',
-    year: 1997,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/INFVIS.1997.636718',
-    citationCount: 890,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.86, 'topic-5': 0.08, 'topic-1': 0.06 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['graph drawing', 'hierarchical trees', 'node-link diagram', 'force-directed layout'],
-    abstract:
-      'We present the H3 layout algorithm for drawing large directed graphs as spanning trees with non-tree cross-links inside a 3D hyperbolic projection ball, supporting fluid focus+context navigation across tens of thousands of nodes.',
-    references: [],
-  },
-  {
-    id: 'vis-2000-cushion',
-    title: 'Cushion Treemaps: Visualization of Hierarchical Information',
-    year: 1999,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/INFVIS.1999.801860',
-    citationCount: 1620,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.82, 'topic-4': 0.12, 'topic-3': 0.06 },
-    authorIds: ['jarke-van-wijk'],
-    keywords: ['hierarchical trees', 'graph drawing', 'community clusters', 'node-link diagram'],
-    abstract:
-      'Standard space-filling treemaps efficiently encode leaf sizes via area but often obscure the nesting structure of hierarchical trees. We introduce Cushion Treemaps, which apply analytical 3D shading ridges across recursive subdivisions.',
-    references: ['vis-1997-h3'],
-  },
-  {
-    id: 'vis-2000-squarified',
-    title: 'Squarified Treemaps',
-    year: 2000,
-    venue: 'IEEE InfoVis',
-    doi: '10.1007/978-3-7091-6783-0_4',
-    citationCount: 2140,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.84, 'topic-4': 0.10, 'topic-5': 0.06 },
-    authorIds: ['mark-bruls', 'kees-huizing', 'jarke-van-wijk'],
-    keywords: ['hierarchical trees', 'graph drawing', 'community clusters'],
-    abstract:
-      'Subdividing rectangular treemap regions often produces thin, elongated rectangles that are difficult to compare visually. Squarified Treemaps optimize rectangle aspect ratios toward squares while preserving hierarchical tree order.',
-    references: ['vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2003-treejuxtaposer',
-    title: 'TreeJuxtaposer: Scalable Tree Comparison Using Focus+Context with Guaranteed Visibility',
-    year: 2003,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/882262.882291',
-    citationCount: 1140,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.86, 'topic-5': 0.08, 'topic-4': 0.06 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['hierarchical trees', 'graph drawing', 'node-link diagram'],
-    abstract:
-      'TreeJuxtaposer compares large phylogenetic and hierarchical trees side by side using accordion drawing and focus+context stretching with guaranteed visibility of highlighted structural differences.',
-    references: ['vis-1997-h3', 'vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2005-vizster',
-    title: 'Vizster: Visualizing Online Social Networks',
-    year: 2005,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/INFVIS.2005.1532126',
-    citationCount: 1380,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.79, 'topic-5': 0.15, 'topic-4': 0.06 },
-    authorIds: ['jeffrey-heer'],
-    keywords: ['force-directed layout', 'node-link diagram', 'community clusters', 'graph drawing'],
-    abstract:
-      'We present Vizster, an interactive node-link visualization system for exploring large online social networks using customized force-directed layout springs and automated community cluster hull enclosures.',
-    references: ['vis-2004-prefuse', 'vis-1997-h3'],
-  },
-  {
-    id: 'vis-2006-treeplus',
-    title: 'TreePlus: Interactive Exploration of Networks with Enhanced Tree Layouts',
-    year: 2006,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2006.106',
-    citationCount: 640,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.81, 'topic-5': 0.13, 'topic-4': 0.06 },
-    authorIds: ['bongshin-lee', 'catherine-plaisant'],
-    keywords: ['hierarchical trees', 'node-link diagram', 'graph drawing'],
-    abstract:
-      'Guided by the metaphor "plant a seed and watch it grow," TreePlus transforms general graphs into readable spanning tree layouts with on-demand animated previews of cross-links and adjacent neighbors.',
-    references: ['vis-2003-treejuxtaposer', 'vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2006-heb',
-    title: 'Hierarchical Edge Bundling: Visualization of Adjacency Relations in Hierarchical Data',
-    year: 2006,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2006.147',
-    citationCount: 2490,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.89, 'topic-4': 0.06, 'topic-1': 0.05 },
-    authorIds: ['danny-holten'],
-    keywords: ['edge bundling', 'hierarchical trees', 'node-link diagram', 'graph drawing'],
-    abstract:
-      'Compound graphs—consisting of hierarchical trees alongside a dense node-link diagram—routinely suffer from severe visual clutter. We present Hierarchical Edge Bundling, a general graph drawing method that bends adjacency edges as B-splines along the hierarchy backbone.',
-    references: ['vis-2000-cushion', 'vis-2000-squarified'],
-  },
-  {
-    id: 'vis-2007-topolayout',
-    title: 'TopoLayout: Multilevel Graph Layout by Topological Features',
-    year: 2007,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2007.46',
-    citationCount: 540,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.85, 'topic-3': 0.09, 'topic-5': 0.06 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['force-directed layout', 'node-link diagram', 'graph drawing', 'community clusters'],
-    abstract:
-      'Force-directed layout algorithms degrade both computationally and visually when applied to large node-link diagram networks. TopoLayout detects topological features—trees, complete cliques, and biconnected components—and applies specialized layout passes inside a multilevel hierarchy.',
-    references: ['vis-2003-treejuxtaposer', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2008-grouseflocks',
-    title: 'GrouseFlocks: Steerable Exploration of Graph Hierarchy Space',
-    year: 2008,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2007.70631',
-    citationCount: 470,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.83, 'topic-5': 0.11, 'topic-3': 0.06 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['hierarchical trees', 'community clusters', 'node-link diagram', 'graph drawing'],
-    abstract:
-      'Different attribute cuts over the same underlying network produce vastly different hierarchy decompositions. GrouseFlocks enables interactive steerable exploration of cut hierarchies on top of topological graph layouts.',
-    references: ['vis-2007-topolayout', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2008-zame',
-    title: 'ZAME: Interactive Large-Scale Graph Visualization',
-    year: 2008,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/PACIFICVIS.2008.4475479',
-    citationCount: 610,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.84, 'topic-5': 0.10, 'topic-3': 0.06 },
-    authorIds: ['niklas-elmqvist', 'jean-daniel-fekete'],
-    keywords: ['adjacency matrix', 'hierarchical trees', 'community clusters', 'graph drawing'],
-    abstract:
-      'ZAME (Zoomable Adjacency Matrix Explorer) visualizes millions of graph edges at interactive frame rates by combining multiscale pyramid aggregation of adjacency matrices with GPU shader glyph rendering.',
-    references: ['vis-2006-heb', 'vis-2000-squarified'],
-  },
-  {
-    id: 'vis-2011-fdeb',
-    title: 'Force-Directed Edge Bundling for Graph Visualization',
-    year: 2009,
-    venue: 'IEEE InfoVis',
-    doi: '10.1111/j.1467-8659.2009.01450.x',
-    citationCount: 1540,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.89, 'topic-6': 0.07, 'topic-1': 0.04 },
-    authorIds: ['danny-holten', 'jarke-van-wijk'],
-    keywords: ['edge bundling', 'force-directed layout', 'node-link diagram', 'graph drawing'],
-    abstract:
-      'We introduce a self-organizing force-directed edge bundling algorithm that models graph edges as flexible springs attracting geometrically compatible edges without requiring an external hierarchy.',
-    references: ['vis-2006-heb', 'vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2014-neurolines',
-    title: 'NeuroLines: A Subway Map Metaphor for Visualizing Nanoscale Neuronal Connectivity',
-    year: 2014,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2014.2346312',
-    citationCount: 380,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.72, 'topic-1': 0.20, 'topic-4': 0.08 },
-    authorIds: ['hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['node-link diagram', 'graph drawing', 'hierarchical trees', 'community clusters'],
-    abstract:
-      'Reconstructing synaptic connectivity from 3D electron microscopy brain volumes yields intricate branching neurites. NeuroLines abstracts nanoscale dendrites and axons into a multi-scale subway map layout to inspect synaptic pathways.',
-    references: ['vis-2013-octree', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2014-dynamic-ego',
-    title: 'egoSlider: Visual Analysis of Egocentric Network Evolution',
-    year: 2015,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2015.2468151',
-    citationCount: 480,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.78, 'topic-7': 0.12, 'topic-5': 0.10 },
-    authorIds: ['huamin-qu-0001'],
-    keywords: ['dynamic networks', 'node-link diagram', 'community clusters', 'graph drawing'],
-    abstract:
-      'egoSlider provides a three-level visual analytics framework for exploring how individual ego-networks evolve, expand, and restructure across longitudinal time steps in dynamic networks.',
-    references: ['vis-2005-vizster', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2019-deepdrawing',
-    title: 'DeepDrawing: A Deep Learning Approach to Graph Drawing',
-    year: 2019,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2019.2934798',
-    citationCount: 390,
-    primaryTopicId: 'topic-0',
-    topicScores: { 'topic-0': 0.76, 'topic-2': 0.18, 'topic-3': 0.06 },
-    authorIds: ['yong-wang', 'huamin-qu-0001'],
-    keywords: ['graph drawing', 'force-directed layout', 'node-link diagram'],
-    abstract:
-      'Rather than hand-crafting energy optimization heuristics for each graph family, DeepDrawing trains a bidirectional graph-LSTM neural network to map topological adjacency structures directly to 2D node coordinates.',
-    references: ['vis-2011-fdeb', 'vis-2007-topolayout'],
-  },
+interface TopicDefinition {
+  id: string;
+  name: string;
+  shortName: string;
+  color: string;
+  description: string;
+  keywordGroupingSummary: string;
+  /** Weighted domain vocabulary (unigrams & bigrams) used to classify real papers cleanly */
+  vocab: Array<[string, number]>;
+  /** Default fallback keywords if a subset has sparse metadata */
+  seedKeywords: Array<{ term: string; weight: number }>;
+  conferencePrior: Partial<Record<RawPaperRecord['venue'], number>>;
+}
 
-  // ===========================================================================
-  // TOPIC 1: Scientific & Volume Visualization (SciVis) (12 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-1999-volumepro',
-    title: 'The VolumePro Real-Time Ray-Casting System',
-    year: 1999,
-    venue: 'IEEE SciVis',
-    doi: '10.1145/311535.311563',
-    citationCount: 1240,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.89, 'topic-4': 0.06, 'topic-5': 0.05 },
-    authorIds: ['hanspeter-pfister'],
-    keywords: ['volume ray-casting', 'gpu rendering', 'transfer functions', 'isosurfaces'],
-    abstract:
-      'Presents the VolumePro architecture capable of rendering 256^3 volumetric datasets at 30 frames per second using shear-warp ray-casting, trilinear gradient estimation, and Phong shading.',
-    references: [],
-  },
-  {
-    id: 'vis-2001-transfer',
-    title: 'The Transfer Function Bake-Off',
-    year: 2001,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/38.920623',
-    citationCount: 1180,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.86, 'topic-4': 0.08, 'topic-3': 0.06 },
-    authorIds: ['hanspeter-pfister'],
-    keywords: ['transfer functions', 'volume ray-casting', 'isosurfaces', 'gpu rendering'],
-    abstract:
-      'Compares state-of-the-art transfer function specification methods—including multidimensional histogram widgets, contour spectrums, and design galleries—across medical CT and turbulent flow volumes.',
-    references: ['vis-1999-volumepro'],
-  },
-  {
-    id: 'vis-2001-ewa-splatting',
-    title: 'EWA Volume Splatting',
-    year: 2001,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/VISUAL.2001.964490',
-    citationCount: 960,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.88, 'topic-4': 0.07, 'topic-0': 0.05 },
-    authorIds: ['hanspeter-pfister'],
-    keywords: ['volume ray-casting', 'gpu rendering', 'transfer functions'],
-    abstract:
-      'Formulates an elliptical weighted average (EWA) resampling filter for volume splatting that eliminates aliasing artifacts under extreme perspective magnification and minification without performance loss.',
-    references: ['vis-1999-volumepro', 'vis-2001-transfer'],
-  },
-  {
-    id: 'vis-2002-ibfv',
-    title: 'Image Based Flow Visualization',
-    year: 2002,
-    venue: 'IEEE SciVis',
-    doi: '10.1145/566570.566647',
-    citationCount: 1410,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.87, 'topic-6': 0.08, 'topic-4': 0.05 },
-    authorIds: ['jarke-van-wijk'],
-    keywords: ['flow streamlines', 'vector fields', 'turbulence vortices', 'gpu rendering'],
-    abstract:
-      'Introduces Image Based Flow Visualization (IBFV), generating dense, real-time animated 2D flow textures by warping and blending spatially filtered white noise patterns on standard graphics hardware.',
-    references: ['vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2003-lighting-vol',
-    title: 'Lighting Design for Volume Rendering',
-    year: 2003,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/VISUAL.2003.1250380',
-    citationCount: 540,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.84, 'topic-4': 0.11, 'topic-5': 0.05 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['volume ray-casting', 'transfer functions', 'gpu rendering', 'isosurfaces'],
-    abstract:
-      'Applies perceptual lighting principles to direct volume rendering, interactively optimizing key, fill, and rim light parameters to enhance surface curvature and depth cues across 3D scalar fields.',
-    references: ['vis-2001-transfer'],
-  },
-  {
-    id: 'vis-2004-point-splatting',
-    title: 'A Parallel Coordinates Style Interface for Exploratory Volume Visualization',
-    year: 2005,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2005.3',
-    citationCount: 680,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.76, 'topic-3': 0.18, 'topic-5': 0.06 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['transfer functions', 'volume ray-casting', 'gpu rendering', 'isosurfaces'],
-    abstract:
-      'Couples multi-field volume rendering with an interactive parallel coordinates transfer function interface so scientists can brush joint scalar, gradient, and chemical species correlations in 3D simulations.',
-    references: ['vis-2001-transfer', 'vis-2003-lighting-vol'],
-  },
-  {
-    id: 'vis-2008-flow',
-    title: 'Importance-Driven Time-Varying Data Visualization',
-    year: 2008,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2008.140',
-    citationCount: 890,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.83, 'topic-6': 0.11, 'topic-4': 0.06 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['volume ray-casting', 'flow streamlines', 'vector fields', 'turbulence vortices'],
-    abstract:
-      'Quantifies conditional entropy and mutual information across spatial-temporal blocks in unsteady 3D volumes to automatically highlight salient physical transitions and allocate rendering budgets.',
-    references: ['vis-2001-transfer', 'vis-2004-point-splatting'],
-  },
-  {
-    id: 'vis-2010-insitu-combustion',
-    title: 'In Situ Visualization for Large-Scale Combustion Simulations',
-    year: 2010,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/MCG.2010.55',
-    citationCount: 780,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.85, 'topic-5': 0.09, 'topic-3': 0.06 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['ensemble simulation', 'volume ray-casting', 'gpu rendering', 'turbulence vortices'],
-    abstract:
-      'Demonstrates scalable in situ volume rendering coupled directly with massively parallel turbulent combustion solvers on petascale supercomputers to bypass disk I/O bottlenecks.',
-    references: ['vis-2008-flow'],
-  },
-  {
-    id: 'vis-2013-octree',
-    title: 'ConnectomeExplorer: Query-Guided Visual Analysis of Large Volumetric Neuroscience Data',
-    year: 2013,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2013.142',
-    citationCount: 640,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.82, 'topic-0': 0.12, 'topic-5': 0.06 },
-    authorIds: ['hanspeter-pfister'],
-    keywords: ['volume ray-casting', 'gpu rendering', 'isosurfaces', 'transfer functions'],
-    abstract:
-      'Combines out-of-core GPU octree volume ray-casting with dynamic topological spatial queries to explore terabyte-scale electron microscopy brain tissue reconstructions.',
-    references: ['vis-2001-ewa-splatting', 'vis-2008-flow'],
-  },
-  {
-    id: 'vis-2013-contour-boxplot',
-    title: 'Contour Boxplots: A Method for Characterizing Uncertainty in Feature Sets from Simulation Ensembles',
-    year: 2013,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2013.143',
-    citationCount: 890,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.72, 'topic-4': 0.20, 'topic-6': 0.08 },
-    authorIds: ['miriah-meyer'],
-    keywords: ['ensemble simulation', 'isosurfaces', 'vector fields', 'turbulence vortices'],
-    abstract:
-      'Overlaying dozens of contour isosurfaces from weather or climate ensemble simulation runs quickly becomes an unreadable spaghetti plot. Contour Boxplots generalize statistical data depth to 2D and 3D level sets.',
-    references: ['vis-2001-transfer', 'vis-2008-flow'],
-  },
-  {
-    id: 'vis-2015-ensemble-vis',
-    title: 'Uncertainty-Aware Multidimensional Ensemble Data Visualization and Exploration',
-    year: 2015,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2015.2410278',
-    citationCount: 460,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.71, 'topic-3': 0.21, 'topic-4': 0.08 },
-    authorIds: ['wei-chen-0001'],
-    keywords: ['ensemble simulation', 'isosurfaces', 'vector fields', 'volume ray-casting'],
-    abstract:
-      'Introduces dissimilarity-preserving multidimensional scaling and uncertainty glyphs to summarize both ensemble mean trends and member variance across physical simulation runs.',
-    references: ['vis-2013-contour-boxplot', 'vis-2008-flow'],
-  },
-  {
-    id: 'vis-2018-multimaterial-vol',
-    title: 'Multi-Material Volume Rendering with a Physically-Based Surface Reflection Model',
-    year: 2018,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2017.2784830',
-    citationCount: 310,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.86, 'topic-4': 0.08, 'topic-3': 0.06 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['volume ray-casting', 'transfer functions', 'gpu rendering', 'isosurfaces'],
-    abstract:
-      'Extends direct volume ray-casting with physically-based BRDF surface reflection at material boundaries while preserving volumetric scattering inside homogeneous tissue regions.',
-    references: ['vis-2003-lighting-vol', 'vis-2008-flow'],
-  },
-  {
-    id: 'vis-2019-vol-grammar',
-    title: 'A Declarative Grammar of Flexible Volume Visualization Pipelines',
-    year: 2019,
-    venue: 'IEEE SciVis',
-    doi: '10.1109/TVCG.2018.2864841',
-    citationCount: 280,
-    primaryTopicId: 'topic-1',
-    topicScores: { 'topic-1': 0.75, 'topic-5': 0.19, 'topic-3': 0.06 },
-    authorIds: ['kwan-liu-ma'],
-    keywords: ['volume ray-casting', 'gpu rendering', 'transfer functions'],
-    abstract:
-      'Proposes a declarative domain-specific grammar for specifying, composing, and optimizing GPU volume rendering pipelines, multi-pass shaders, and transfer function operators.',
-    references: ['vis-2017-vegalite', 'vis-2010-insitu-combustion'],
-  },
-
-  // ===========================================================================
-  // TOPIC 2: Visual Analytics & Machine Learning / XAI (15 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-2014-va-pipeline',
-    title: 'Knowledge Generation Model for Visual Analytics',
-    year: 2014,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2014.2346481',
-    citationCount: 1410,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.72, 'topic-4': 0.16, 'topic-5': 0.12 },
-    authorIds: ['daniel-keim'],
-    keywords: ['model steering', 'interactive labeling', 'explainable ai (xai)', 'feature attribution'],
-    abstract:
-      'We introduce the foundational Knowledge Generation Model for Visual Analytics, coupling the computational visual analytics pipeline with human foraging, hypothesis generation, and actionable sensemaking loops.',
-    references: ['vis-2009-nested'],
-  },
-  {
-    id: 'vis-2016-va-uncertainty-trust',
-    title: 'The Role of Uncertainty, Awareness, and Trust in Visual Analytics',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2015.2467591',
-    citationCount: 820,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.68, 'topic-4': 0.24, 'topic-5': 0.08 },
-    authorIds: ['daniel-keim'],
-    keywords: ['explainable ai (xai)', 'model steering', 'model debugging', 'feature attribution'],
-    abstract:
-      'Investigates how data, model, and visual mapping uncertainties propagate through visual analytics systems and calibrate human analyst trust during machine-assisted decision making.',
-    references: ['vis-2014-va-pipeline'],
-  },
-  {
-    id: 'vis-2016-cnnvis',
-    title: 'Towards Better Analysis of Deep Convolutional Neural Networks',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2016.2598831',
-    citationCount: 1260,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-0': 0.09, 'topic-3': 0.06 },
-    authorIds: ['shixia-liu-0001'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'model debugging', 'feature attribution'],
-    abstract:
-      'Presents CNNVis, formulating a deep convolutional neural network as a directed acyclic graph and biclustering neuron activations and learned filters for interactive visual model debugging.',
-    references: ['vis-2014-va-pipeline', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2016-dropoutseer',
-    title: 'DropoutSeer: Visualizing Learning Patterns in Massive Open Online Courses for Dropout Reasoning and Prediction',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1109/VAST.2016.7883517',
-    citationCount: 390,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.78, 'topic-5': 0.14, 'topic-7': 0.08 },
-    authorIds: ['huamin-qu-0001'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'interactive labeling'],
-    abstract:
-      'Integrates clickstream sequence mining, forum sentiment, and gradient-boosted prediction models to explain why learners drop out of massive open online courses.',
-    references: ['vis-2014-va-pipeline'],
-  },
-  {
-    id: 'vis-2017-lstmvis',
-    title: 'LSTMVis: A Tool for Visual Analysis of Hidden State Dynamics in Recurrent Neural Networks',
-    year: 2017,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2017.2744158',
-    citationCount: 1120,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.81, 'topic-7': 0.12, 'topic-5': 0.07 },
-    authorIds: ['hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['deep neural networks', 'latent embeddings', 'explainable ai (xai)', 'model debugging'],
-    abstract:
-      'Sequence deep neural networks capture complex patterns in text and genomes, yet what internal latent embeddings learn remains opaque. LSTMVis lets researchers select a phrase and match hidden state activation patterns across the corpus.',
-    references: ['vis-2014-va-pipeline', 'vis-2016-cnnvis'],
-  },
-  {
-    id: 'vis-2018-dgm-diagnosis',
-    title: 'Analyzing the Training Processes of Deep Generative Models',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2017.2744938',
-    citationCount: 540,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.84, 'topic-3': 0.10, 'topic-5': 0.06 },
-    authorIds: ['shixia-liu-0001'],
-    keywords: ['deep neural networks', 'model debugging', 'latent embeddings', 'explainable ai (xai)'],
-    abstract:
-      'Introduces DGMTracker to monitor gradient flow, activation distributions, and mode collapse dynamics between generator and discriminator networks during deep generative model training.',
-    references: ['vis-2016-cnnvis', 'vis-2017-lstmvis'],
-  },
-  {
-    id: 'vis-2018-ensemblelens',
-    title: 'EnsembleLens: Ensemble-based Visual Exploration of Anomaly Detection Algorithms with Multidimensional Data',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2018.2864825',
-    citationCount: 285,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.76, 'topic-3': 0.18, 'topic-5': 0.06 },
-    authorIds: ['ke-xu', 'meng-xia-0002', 'xing-mu', 'yun-wang', 'nan-cao'],
-    keywords: ['explainable ai (xai)', 'model steering', 'feature attribution', 'model debugging'],
-    abstract:
-      'Presents EnsembleLens, an interactive visual analytics system that combines ensemble anomaly detection algorithms with human-in-the-loop feature subspace exploration to identify anomalous patterns in multidimensional data.',
-    references: ['vis-2014-va-pipeline', 'vis-2012-subspace-tatu'],
-  },
-  {
-    id: 'vis-2018-vis4ml',
-    title: 'VIS4ML: An Ontology for Visual Analytics Assisted Machine Learning',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2018.2864838',
-    citationCount: 680,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.83, 'topic-5': 0.11, 'topic-4': 0.06 },
-    authorIds: ['daniel-keim'],
-    keywords: ['explainable ai (xai)', 'model steering', 'interactive labeling', 'deep neural networks'],
-    abstract:
-      'Synthesizes an ontological framework (VIS4ML) mapping how interactive visual analytics workflows assist data preparation, feature engineering, hyperparameter tuning, and model validation.',
-    references: ['vis-2014-va-pipeline', 'vis-2016-cnnvis'],
-  },
-  {
-    id: 'vis-2019-seq2seq',
-    title: 'Seq2Seq-Vis: A Visual Debugging Tool for Sequence-to-Sequence Models',
-    year: 2019,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2018.2865044',
-    citationCount: 790,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.79, 'topic-7': 0.14, 'topic-3': 0.07 },
-    authorIds: ['hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['transformer attention', 'model debugging', 'latent embeddings', 'model steering'],
-    abstract:
-      'Neural sequence-to-sequence models rely on encoder, attention, and beam-search decoding stages where errors compound silently. Seq2Seq-Vis visualizes latent embeddings and attention weights at each stage for counterfactual debugging.',
-    references: ['vis-2017-lstmvis', 'vis-2016-cnnvis'],
-  },
-  {
-    id: 'vis-2019-ablate',
-    title: 'Ablate, Variate, and Contemplate: Visual Analytics for Discovering Neural Network Vulnerabilities',
-    year: 2019,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2019.2934261',
-    citationCount: 310,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.82, 'topic-3': 0.11, 'topic-4': 0.07 },
-    authorIds: ['hendrik-strobelt'],
-    keywords: ['deep neural networks', 'model debugging', 'explainable ai (xai)', 'feature attribution'],
-    abstract:
-      'Enables interactive ablation of convolutional feature detectors and synthetic input perturbations to systematically audit robustness vulnerabilities in deep neural networks.',
-    references: ['vis-2016-cnnvis', 'vis-2017-lstmvis'],
-  },
-  {
-    id: 'vis-2020-qlens',
-    title: 'QLens: Visual Analytics of Multi-Step Problem-Solving Behaviors for Improving Question Design',
-    year: 2020,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2020.3030337',
-    citationCount: 195,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.76, 'topic-5': 0.16, 'topic-0': 0.08 },
-    authorIds: ['meng-xia-0002', 'reshika-velumani', 'yong-wang', 'huamin-qu-0001', 'xiaojuan-ma'],
-    keywords: ['explainable ai (xai)', 'interactive labeling', 'model steering', 'feature attribution'],
-    abstract:
-      'Analyzing multi-step learner interaction logs requires combining transition sequence mining with human-in-the-loop visual analytics. QLens empowers instructors and educational designers to inspect problem-solving bottlenecks and refine question design.',
-    references: ['vis-2018-peerlens', 'vis-2016-dropoutseer'],
-  },
-  {
-    id: 'vis-2020-dece',
-    title: 'DECE: Decision Explorer with Counterfactual Explanations for Machine Learning Models',
-    year: 2020,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2020.3030361',
-    citationCount: 510,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.84, 'topic-3': 0.10, 'topic-4': 0.06 },
-    authorIds: ['huamin-qu-0001'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'model steering'],
-    abstract:
-      'Supports subgroup and instance-level counterfactual explanation generation so model developers and domain experts can probe decision boundaries and actionable recourse rules.',
-    references: ['vis-2014-va-pipeline', 'vis-2018-vis4ml'],
-  },
-  {
-    id: 'vis-2020-discri-ml',
-    title: 'Visual Analysis of Discrimination in Machine Learning',
-    year: 2020,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2020.3030471',
-    citationCount: 420,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.81, 'topic-3': 0.12, 'topic-4': 0.07 },
-    authorIds: ['yong-wang', 'shixia-liu-0001', 'huamin-qu-0001'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'interactive labeling'],
-    abstract:
-      'Introduces FairVis / DiscriLens using causal set intersection views to uncover intersectional algorithmic bias and discriminatory feature dependencies in machine learning classifiers.',
-    references: ['vis-2016-cnnvis', 'vis-2018-vis4ml'],
-  },
-  {
-    id: 'vis-2022-gnnlens',
-    title: 'GNNLens: A Visual Analytics Approach for Prediction Error Diagnosis of Graph Neural Networks',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2022.3148107',
-    citationCount: 340,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.74, 'topic-0': 0.20, 'topic-3': 0.06 },
-    authorIds: ['yong-wang', 'huamin-qu-0001'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'model debugging', 'feature attribution'],
-    abstract:
-      'Graph Neural Networks aggregate neighborhood features across message-passing layers. GNNLens correlates topological neighborhood structures with proxy models to diagnose node classification errors.',
-    references: ['vis-2019-deepdrawing', 'vis-2020-dece'],
-  },
-  {
-    id: 'vis-2022-prompt-eng',
-    title: 'Interactive and Visual Prompt Engineering for Ad-hoc Task Adaptation with Large Language Models',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2022.3209479',
-    citationCount: 465,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.78, 'topic-7': 0.15, 'topic-5': 0.07 },
-    authorIds: ['hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['transformer attention', 'latent embeddings', 'explainable ai (xai)', 'model steering'],
-    abstract:
-      'Presents PromptIDE, an interactive visual environment for experimenting with prompt templates, inspecting token-level log-probabilities, and steering zero-shot and few-shot Large Language Model outputs.',
-    references: ['vis-2019-seq2seq', 'vis-2021-genni'],
-  },
-  {
-    id: 'vis-2024-stugptviz',
-    title: 'StuGPTViz: A Visual Analytics Approach to Understand Student-ChatGPT Interactions',
-    year: 2024,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2024.3456351',
-    citationCount: 95,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.79, 'topic-7': 0.13, 'topic-5': 0.08 },
-    authorIds: ['kyungjin-lee', 'meng-xia-0002', 'chulwoo-kim', 'juho-kim', 'huamin-qu-0001'],
-    keywords: ['explainable ai (xai)', 'transformer attention', 'interactive labeling', 'model steering'],
-    abstract:
-      'Provides instructors and educational researchers with multi-scale temporal and pedagogical visual analytics to examine how students prompt, iterate, and co-reason with ChatGPT across problem-solving sessions.',
-    references: ['vis-2020-qlens', 'vis-2022-prompt-eng'],
-  },
-  {
-    id: 'vis-2016-prospector',
-    title: 'Prospector: Interactive Visual Exploration of Black-Box Machine Learning Models',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1145/2858036.2858529',
-    citationCount: 840,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-3': 0.09, 'topic-5': 0.06 },
-    authorIds: ['josua-krause', 'adam-perer', 'kenney-ng'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'model steering'],
-    abstract:
-      'Introduces localized partial dependence plots and interactive instance perturbation so data scientists can probe how individual features affect black-box predictive models.',
-    references: ['vis-2014-va-pipeline'],
-  },
-  {
-    id: 'vis-2017-activis',
-    title: 'ActiVis: Visual Exploration of Industry-Scale Deep Neural Network Models',
-    year: 2017,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2017.2744718',
-    citationCount: 790,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.86, 'topic-3': 0.08, 'topic-5': 0.06 },
-    authorIds: ['minsuk-kahng', 'pierre-andrews', 'aditya-kalro', 'duen-horng-chau'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'latent embeddings', 'model debugging'],
-    abstract:
-      'Unifies instance-level neuron activation matrices with subset-level projected embedding views to debug industry-scale deep learning models deployed in production.',
-    references: ['vis-2016-cnnvis', 'vis-2016-prospector'],
-  },
-  {
-    id: 'vis-2017-squares',
-    title: 'Squares: Supporting Interactive Performance Analysis for Multiclass Classifiers',
-    year: 2017,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2016.2598828',
-    citationCount: 510,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.81, 'topic-4': 0.11, 'topic-5': 0.08 },
-    authorIds: ['donghao-ren', 'saleema-amershi', 'bongshin-lee', 'jina-suh', 'jason-williams'],
-    keywords: ['model debugging', 'explainable ai (xai)', 'interactive labeling', 'feature attribution'],
-    abstract:
-      'Replaces static confusion matrices with unit-level stacked prediction score histograms that support direct drill-down from aggregate multiclass metrics to misclassified instances.',
-    references: ['vis-2014-va-pipeline', 'vis-2016-prospector'],
-  },
-  {
-    id: 'vis-2018-manifold',
-    title: 'Manifold: A Model-Agnostic Framework for Interpretation and Diagnosis of Machine Learning Models',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2018.2864499',
-    citationCount: 620,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.84, 'topic-3': 0.10, 'topic-5': 0.06 },
-    authorIds: ['jiawei-zhang', 'yang-wang', 'piero-molino', 'lezhi-li', 'david-ebert'],
-    keywords: ['explainable ai (xai)', 'model debugging', 'feature attribution', 'model steering'],
-    abstract:
-      'Provides a model-agnostic visual comparison framework that pairs prediction agreement matrices with feature distribution tabular views to diagnose ensemble discrepancies.',
-    references: ['vis-2017-activis', 'vis-2017-squares'],
-  },
-  {
-    id: 'vis-2018-rulematrix',
-    title: 'RuleMatrix: Visualizing and Understanding Classifiers with Rules',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2018.2864812',
-    citationCount: 590,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-3': 0.09, 'topic-4': 0.06 },
-    authorIds: ['yao-ming', 'huamin-qu-0001', 'enrico-bertini'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'deep neural networks'],
-    abstract:
-      'Extracts standardized rule lists from black-box neural networks and random forests, rendering them as an interactive matrix of input feature thresholds versus output class fidelities.',
-    references: ['vis-2016-prospector', 'vis-2017-activis'],
-  },
-  {
-    id: 'vis-2018-treepod',
-    title: 'TreePOD: Sensitivity-Aware Selection of Pareto-Optimal Decision Trees',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2017.2745158',
-    citationCount: 310,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.78, 'topic-3': 0.14, 'topic-5': 0.08 },
-    authorIds: ['thomas-muhlbacher', 'harald-piringer'],
-    keywords: ['explainable ai (xai)', 'model steering', 'feature attribution'],
-    abstract:
-      'Helps domain experts navigate the trade-off between model accuracy and structural tree complexity by visualizing the Pareto frontier of candidate decision trees.',
-    references: ['vis-2014-va-pipeline'],
-  },
-  {
-    id: 'vis-2018-ganviz',
-    title: 'GANViz: A Visual Analytics Approach to Understand the Adversarial Game',
-    year: 2018,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2018.2816223',
-    citationCount: 470,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.86, 'topic-3': 0.08, 'topic-1': 0.06 },
-    authorIds: ['junpeng-wang', 'liang-gou', 'hao-yang', 'han-wei-shen'],
-    keywords: ['deep neural networks', 'model debugging', 'latent embeddings', 'explainable ai (xai)'],
-    abstract:
-      'Visualizes the competitive minimax training dynamics between generator and discriminator networks in Generative Adversarial Networks (GANs) through activation distribution comparisons.',
-    references: ['vis-2016-cnnvis', 'vis-2018-dgm-diagnosis'],
-  },
-  {
-    id: 'vis-2019-whatif',
-    title: 'The What-If Tool: Interactive Probing of Machine Learning Models',
-    year: 2019,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2019.2934619',
-    citationCount: 1180,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.87, 'topic-5': 0.08, 'topic-4': 0.05 },
-    authorIds: ['james-wexler', 'mahima-pushkarna', 'tolga-bolukbasi', 'martin-wattenberg', 'fernanda-viegas'],
-    keywords: ['explainable ai (xai)', 'model debugging', 'feature attribution', 'model steering'],
-    abstract:
-      'Enables practitioners to test counterfactual hypotheses, inspect nearest-neighbor counterfactuals, and audit algorithmic fairness slices across machine learning models without writing code.',
-    references: ['vis-2016-prospector', 'vis-2017-activis', 'vis-2018-manifold'],
-  },
-  {
-    id: 'vis-2019-summit',
-    title: 'Summit: Scaling Deep Learning Interpretability by Visualizing Activation and Attribution Summarizations',
-    year: 2019,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2019.2934659',
-    citationCount: 640,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.86, 'topic-0': 0.08, 'topic-3': 0.06 },
-    authorIds: ['fred-hohman', 'haekyu-park', 'caleb-robinson', 'duen-horng-chau'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'feature attribution', 'latent embeddings'],
-    abstract:
-      'Constructs attribution graphs across entire image classes by aggregating high-activating channels and inter-layer neuron influences in deep convolutional neural networks.',
-    references: ['vis-2016-cnnvis', 'vis-2017-activis'],
-  },
-  {
-    id: 'vis-2019-explainer',
-    title: 'Explainer: A Visual Analytics Framework for Interactive and Explainable Machine Learning',
-    year: 2019,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2019.2934629',
-    citationCount: 730,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-4': 0.09, 'topic-5': 0.06 },
-    authorIds: ['thilo-spinner', 'udo-schlegel', 'hanna-schafer', 'mennatallah-el-assady'],
-    keywords: ['explainable ai (xai)', 'model steering', 'model debugging', 'feature attribution'],
-    abstract:
-      'Couples an iterative Understand-Diagnose-Refine loop with global and local XAI explanations (LIME, SHAP, layer-wise relevance propagation) for different user personas.',
-    references: ['vis-2014-va-pipeline', 'vis-2018-vis4ml', 'vis-2018-rulematrix'],
-  },
-  {
-    id: 'vis-2020-cnnexplainer',
-    title: 'CNN Explainer: Learning Convolutional Neural Networks with Interactive Visualization',
-    year: 2020,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2020.3030418',
-    citationCount: 860,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.84, 'topic-5': 0.10, 'topic-4': 0.06 },
-    authorIds: ['zijie-wang', 'robert-turko', 'omar-shaikh', 'haekyu-park', 'fred-hohman', 'minsuk-kahng', 'duen-horng-chau'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'feature attribution', 'model debugging'],
-    abstract:
-      'Bridges high-level layer overviews and low-level mathematical convolution/pooling operations directly in the browser to help learners understand how CNNs classify images.',
-    references: ['vis-2016-cnnvis', 'vis-2019-summit'],
-  },
-  {
-    id: 'vis-2021-vbridge',
-    title: 'VBridge: Connecting the Dots Between Features and Data to Explain Healthcare Models',
-    year: 2021,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2021.3114836',
-    citationCount: 275,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.82, 'topic-5': 0.10, 'topic-4': 0.08 },
-    authorIds: ['furui-cheng', 'dongyu-liu', 'fan-du', 'huamin-qu-0001', 'kalyan-veeramachaneni'],
-    keywords: ['explainable ai (xai)', 'feature attribution', 'model debugging', 'model steering'],
-    abstract:
-      'Links hierarchical SHAP feature attributions back to longitudinal electronic health record timelines so clinicians can verify machine learning predictions against raw patient histories.',
-    references: ['vis-2018-rulematrix', 'vis-2020-dece'],
-  },
-  {
-    id: 'vis-2021-neurocartography',
-    title: 'NeuroCartography: Scalable Automatic Visual Summarization of Concepts in Deep Neural Networks',
-    year: 2021,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2021.3114858',
-    citationCount: 240,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-0': 0.09, 'topic-3': 0.06 },
-    authorIds: ['haekyu-park', 'nilaksh-das', 'rahul-duggal', 'fred-hohman', 'duen-horng-chau'],
-    keywords: ['deep neural networks', 'explainable ai (xai)', 'latent embeddings', 'feature attribution'],
-    abstract:
-      'Automatically discovers and clusters neurons that detect shared semantic concepts, summarizing cascade concept pathways across layers in large-scale neural networks.',
-    references: ['vis-2019-summit', 'vis-2020-cnnexplainer'],
-  },
-  {
-    id: 'vis-2022-conceptexplainer',
-    title: 'ConceptExplainer: Interactive Explanation for Deep Neural Networks from a Concept Perspective',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2022.3209384',
-    citationCount: 215,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.84, 'topic-3': 0.10, 'topic-5': 0.06 },
-    authorIds: ['jinbin-huang', 'aditi-mishra', 'bum-chul-kwon', 'chris-bryan'],
-    keywords: ['explainable ai (xai)', 'deep neural networks', 'latent embeddings', 'feature attribution'],
-    abstract:
-      'Provides a structured human-centered concept space browser using Testing with Concept Activation Vectors (TCAV) to explain deep model classifications beyond pixel saliency maps.',
-    references: ['vis-2019-summit', 'vis-2021-neurocartography'],
-  },
-  {
-    id: 'vis-2023-attentionviz',
-    title: 'AttentionViz: A Global View of Transformer Attention',
-    year: 2023,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2023.3327163',
-    citationCount: 385,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.87, 'topic-3': 0.08, 'topic-7': 0.05 },
-    authorIds: ['catherine-yeh', 'yida-chen', 'aoyu-wu', 'cynthia-chen', 'fernanda-viegas', 'martin-wattenberg'],
-    keywords: ['transformer attention', 'latent embeddings', 'explainable ai (xai)', 'deep neural networks'],
-    abstract:
-      'Visualizes joint query-key embedding spaces across multiple layers and heads in both language and vision Transformers, revealing global geometric attention patterns.',
-    references: ['vis-2019-seq2seq', 'vis-2019-whatif', 'vis-2022-prompt-eng'],
-  },
-  {
-    id: 'vis-2023-diffusionexplainer',
-    title: 'Diffusion Explainer: Visual Explanation for Text-to-Image Stable Diffusion',
-    year: 2023,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2023.3327392',
-    citationCount: 310,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.85, 'topic-5': 0.09, 'topic-7': 0.06 },
-    authorIds: ['seongmin-lee', 'benjamin-hoover', 'hendrik-strobelt', 'zijie-wang', 'haekyu-park', 'duen-horng-chau'],
-    keywords: ['explainable ai (xai)', 'deep neural networks', 'transformer attention', 'latent embeddings'],
-    abstract:
-      'Integrates an interactive architecture overview with timestep refinement trajectories to explain how Stable Diffusion transforms text prompt tokens into synthesized images.',
-    references: ['vis-2020-cnnexplainer', 'vis-2022-prompt-eng'],
-  },
-  {
-    id: 'vis-2024-llmcomparator',
-    title: 'LLM Comparator: Interactive Analysis of Side-by-Side Evaluation of Large Language Models',
-    year: 2024,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2024.3456354',
-    citationCount: 195,
-    primaryTopicId: 'topic-2',
-    topicScores: { 'topic-2': 0.83, 'topic-7': 0.11, 'topic-5': 0.06 },
-    authorIds: ['minsuk-kahng', 'ian-tenney', 'mahima-pushkarna', 'james-wexler', 'lucas-dixon'],
-    keywords: ['explainable ai (xai)', 'transformer attention', 'model debugging', 'model steering'],
-    abstract:
-      'Supports interactive visual analytics of side-by-side LLM-as-a-Judge rationales, win-rate breakdowns, and response quality dimensions when benchmarking Large Language Models.',
-    references: ['vis-2019-whatif', 'vis-2022-prompt-eng', 'vis-2023-attentionviz'],
-  },
-
-  // ===========================================================================
-  // TOPIC 3: High-Dimensional & Multivariate Data (12 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-1994-visdb',
-    title: 'VisDB: Database Exploration Using Multidimensional Visualization',
-    year: 1994,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/38.310723',
-    citationCount: 1580,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.88, 'topic-5': 0.07, 'topic-4': 0.05 },
-    authorIds: ['daniel-keim'],
-    keywords: ['multivariate comparison', 'subspace clustering', 'cluster separation', 'parallel coordinates'],
-    abstract:
-      'Maps database query relevance scores for each attribute dimension to spiral and grouped pixel-oriented layouts, allowing analysts to inspect hundreds of thousands of multivariate records simultaneously.',
-    references: [],
-  },
-  {
-    id: 'vis-2005-rankbyfeature',
-    title: 'A Rank-by-Feature Framework for Interactive Exploration of Multidimensional Data',
-    year: 2005,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/INFVIS.2005.1532142',
-    citationCount: 880,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.84, 'topic-5': 0.10, 'topic-4': 0.06 },
-    authorIds: ['ben-shneiderman'],
-    keywords: ['scatterplot matrices', 'multivariate comparison', 'cluster separation'],
-    abstract:
-      'Guides exploratory analysis of high-dimensional tables by ranking 1D histograms and 2D axis-aligned projections according to statistical criteria such as correlation, uniformity, and outlier density.',
-    references: ['vis-1994-visdb'],
-  },
-  {
-    id: 'vis-2008-scatterdice',
-    title: 'Rolling the Dice: Multidimensional Visual Exploration using Scatterplot Matrix Navigation',
-    year: 2008,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2008.153',
-    citationCount: 820,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.78, 'topic-5': 0.16, 'topic-4': 0.06 },
-    authorIds: ['niklas-elmqvist', 'jean-daniel-fekete'],
-    keywords: ['scatterplot matrices', 'multivariate comparison', 'dimensionality reduction'],
-    abstract:
-      'Presents ScatterDice, navigating multidimensional scatterplot matrices via smooth 3D rolling transitions between orthogonal 2D projections to maintain mental map continuity.',
-    references: ['vis-2005-rankbyfeature', 'vis-2007-dynaquery'],
-  },
-  {
-    id: 'vis-2010-dimstiller',
-    title: 'DimStiller: Workflows for Dimensional Analysis and Reduction',
-    year: 2010,
-    venue: 'IEEE VAST',
-    doi: '10.1109/VAST.2010.5652443',
-    citationCount: 670,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.83, 'topic-4': 0.10, 'topic-5': 0.07 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['dimensionality reduction', 'scatterplot matrices', 'parallel coordinates', 'multivariate comparison'],
-    abstract:
-      'Researchers analyzing tables with hundreds of variables often struggle to chain scaling, correlation filtering, and dimensionality reduction operators. DimStiller structures dimensional reduction into steerable visual workflows.',
-    references: ['vis-2009-nested', 'vis-2008-scatterdice'],
-  },
-  {
-    id: 'vis-2011-hd-quality',
-    title: 'Quality Metrics in High-Dimensional Data Visualization: An Overview and Systematization',
-    year: 2011,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2011.229',
-    citationCount: 640,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.86, 'topic-4': 0.09, 'topic-2': 0.05 },
-    authorIds: ['daniel-keim'],
-    keywords: ['dimensionality reduction', 'subspace clustering', 'scatterplot matrices', 'parallel coordinates'],
-    abstract:
-      'Systematizes quality metrics for high-dimensional visualization—including clutter, correlation, cluster separation, and outlier measures—across data space and image space.',
-    references: ['vis-1994-visdb', 'vis-2005-rankbyfeature'],
-  },
-  {
-    id: 'vis-2012-subspace-tatu',
-    title: 'Subspace Search and Visualization to Make Sense of Alternative Clusterings in High-Dimensional Data',
-    year: 2012,
-    venue: 'IEEE VAST',
-    doi: '10.1109/VAST.2012.6400488',
-    citationCount: 490,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.85, 'topic-2': 0.09, 'topic-5': 0.06 },
-    authorIds: ['daniel-keim'],
-    keywords: ['subspace clustering', 'parallel coordinates', 'cluster separation', 'multivariate comparison'],
-    abstract:
-      'High-dimensional datasets often contain multiple non-redundant clusterings across distinct attribute subsets. We couple automated subspace clustering search with linked parallel coordinates and MDS views.',
-    references: ['vis-2011-hd-quality', 'vis-2010-dimstiller'],
-  },
-  {
-    id: 'vis-2013-lineup',
-    title: 'LineUp: Visual Analysis of Multi-Attribute Rankings',
-    year: 2013,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2013.173',
-    citationCount: 1120,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.79, 'topic-5': 0.15, 'topic-4': 0.06 },
-    authorIds: ['samuel-gratzl', 'alexander-lex', 'nils-gehlenborg', 'hanspeter-pfister', 'marc-streit'],
-    keywords: ['multivariate comparison', 'parallel coordinates', 'cluster separation'],
-    abstract:
-      'Enables interactive combination, normalization, and weight adjustment of heterogeneous attributes using stacked bar rankings and slope graphs to compare multi-attribute rankings.',
-    references: ['vis-2010-dimstiller', 'vis-2009-nested'],
-  },
-  {
-    id: 'vis-2014-upset',
-    title: 'UpSet: Visualization of Intersecting Sets',
-    year: 2014,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2014.2346248',
-    citationCount: 3850,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.81, 'topic-5': 0.12, 'topic-4': 0.07 },
-    authorIds: ['alexander-lex', 'nils-gehlenborg', 'hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['multivariate comparison', 'subspace clustering', 'cluster separation'],
-    abstract:
-      'Venn diagrams fail when comparing more than four intersecting sets. UpSet encodes set intersections in a matrix layout paired with sorted cardinality bar charts and attribute summary distributions.',
-    references: ['vis-2013-lineup', 'vis-2009-nested'],
-  },
-  {
-    id: 'vis-2014-structure-hd',
-    title: 'Structure-Based Suggestive Exploration: A New Approach for Effective Exploration of Large Networks',
-    year: 2014,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2014.2346922',
-    citationCount: 360,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.74, 'topic-0': 0.18, 'topic-5': 0.08 },
-    authorIds: ['wei-chen-0001'],
-    keywords: ['dimensionality reduction', 'cluster separation', 'multivariate comparison'],
-    abstract:
-      'Indexes structural and high-dimensional neighborhood features to suggest informative vantage points and subspace views during exploratory analysis.',
-    references: ['vis-2010-dimstiller', 'vis-2011-hd-quality'],
-  },
-  {
-    id: 'vis-2017-vi-dr-survey',
-    title: 'Visual Interaction with Dimensionality Reduction: A Structured Literature Analysis',
-    year: 2017,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2016.2598838',
-    citationCount: 910,
-    primaryTopicId: 'topic-3',
-    topicScores: { 'topic-3': 0.82, 'topic-2': 0.12, 'topic-5': 0.06 },
-    authorIds: ['daniel-keim'],
-    keywords: ['dimensionality reduction', 't-sne projection', 'umap embedding', 'cluster separation'],
-    abstract:
-      'Analyzes how visual analytics systems integrate human interaction—parameter tuning, constraint steering, and feature weighting—directly into dimensionality reduction pipelines.',
-    references: ['vis-2014-va-pipeline', 'vis-2010-dimstiller', 'vis-2012-subspace-tatu'],
-  },
-
-  // ===========================================================================
-  // TOPIC 4: Perception & Color / Evaluation (12 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-2009-nested',
-    title: 'A Nested Model for Visualization Design and Validation',
-    year: 2009,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2009.111',
-    citationCount: 3420,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.78, 'topic-5': 0.14, 'topic-2': 0.08 },
-    authorIds: ['tamara-munzner'],
-    keywords: ['design methodology', 'visual encoding', 'empirical user study', 'graphical perception'],
-    abstract:
-      'We present a four-level nested model for designing and validating visualizations: (1) characterizing the domain problem, (2) abstracting data and operation tasks, (3) designing visual encoding and interactions, and (4) algorithm implementation.',
-    references: ['vis-2000-cushion', 'vis-2003-treejuxtaposer'],
-  },
-  {
-    id: 'vis-2009-mizbee',
-    title: 'MizBee: A Multiscale Synteny Browser',
-    year: 2009,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2009.167',
-    citationCount: 680,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.72, 'topic-0': 0.18, 'topic-1': 0.10 },
-    authorIds: ['miriah-meyer', 'tamara-munzner', 'hanspeter-pfister'],
-    keywords: ['design methodology', 'visual encoding', 'colormap design', 'empirical user study'],
-    abstract:
-      'Applies the nested visualization design methodology to comparative genomics, coordinating circular chromosome overview encodings with multiscale linked views of conserved syntenic blocks.',
-    references: ['vis-2009-nested', 'vis-2006-heb'],
-  },
-  {
-    id: 'vis-2010-perception',
-    title: 'Crowdsourcing Graphical Perception: Using Mechanical Turk to Assess Visualization Design',
-    year: 2010,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/1753326.1753357',
-    citationCount: 2560,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.86, 'topic-5': 0.09, 'topic-7': 0.05 },
-    authorIds: ['jeffrey-heer', 'michael-bostock'],
-    keywords: ['graphical perception', 'crowdsourced evaluation', 'empirical user study', 'visual encoding'],
-    abstract:
-      'Replicates Cleveland and McGill graphical perception benchmarks and evaluates horizon graphs and treemap encodings using Amazon Mechanical Turk crowdsourced user studies.',
-    references: ['vis-2009-nested'],
-  },
-  {
-    id: 'vis-2011-rhetoric',
-    title: 'Visualization Rhetoric: Framing Effects in Narrative Visualization',
-    year: 2011,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2011.252',
-    citationCount: 1190,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.74, 'topic-7': 0.20, 'topic-5': 0.06 },
-    authorIds: ['jessica-hullman'],
-    keywords: ['visual encoding', 'graphical perception', 'uncertainty perception', 'design methodology'],
-    abstract:
-      'Analyzes how editorial design choices—omission, metonymy, provenance annotations, and visual contrast—shape reader interpretation in narrative visualizations.',
-    references: ['vis-2010-narrative', 'vis-2009-nested'],
-  },
-  {
-    id: 'vis-2012-sedlmair',
-    title: 'Design Study Methodology: Reflections from the Trenches and the Stacks',
-    year: 2012,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2012.213',
-    citationCount: 2150,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.83, 'topic-5': 0.10, 'topic-2': 0.07 },
-    authorIds: ['miriah-meyer', 'tamara-munzner'],
-    keywords: ['design methodology', 'empirical user study', 'visual encoding'],
-    abstract:
-      'Drawing on 21 real-world visualization collaborations, we provide a practical nine-stage design study methodology framework and catalogue 32 common pitfalls when working with domain experts.',
-    references: ['vis-2009-nested', 'vis-2009-mizbee'],
-  },
-  {
-    id: 'vis-2015-hops',
-    title: 'Hypothetical Outcome Plots Outperform Error Bars and Violin Plots for Inferences About Reliability of Variable Ordering',
-    year: 2015,
-    venue: 'IEEE InfoVis',
-    doi: '10.1371/journal.pone.0142444',
-    citationCount: 1120,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.82, 'topic-5': 0.11, 'topic-7': 0.07 },
-    authorIds: ['jessica-hullman'],
-    keywords: ['uncertainty perception', 'graphical perception', 'crowdsourced evaluation', 'empirical user study'],
-    abstract:
-      'Static 95% confidence error bars frequently mislead readers during uncertainty perception tasks. Hypothetical Outcome Plots (HOPs) animate individual sample draws from a distribution, significantly improving probability judgments.',
-    references: ['vis-2010-perception', 'vis-2013-contour-boxplot'],
-  },
-  {
-    id: 'vis-2016-quantile-dotplots',
-    title: 'When (ish) is My Bus? User-Centered Visualizations of Uncertainty in Everyday, Mobile Predictive Systems',
-    year: 2016,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/2858036.2858558',
-    citationCount: 830,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.84, 'topic-7': 0.09, 'topic-5': 0.07 },
-    authorIds: ['jessica-hullman'],
-    keywords: ['uncertainty perception', 'empirical user study', 'crowdsourced evaluation', 'graphical perception'],
-    abstract:
-      'Introduces quantile dotplots—discrete frequency representations of continuous probability distributions—that reduce variance estimation errors when communicating predictive uncertainty.',
-    references: ['vis-2015-hops', 'vis-2010-perception'],
-  },
-  {
-    id: 'vis-2018-color-ramps',
-    title: 'Somewhere Over the Rainbow: An Empirical Assessment of Quantitative Colormaps',
-    year: 2018,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/3173574.3174172',
-    citationCount: 690,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.86, 'topic-1': 0.08, 'topic-6': 0.06 },
-    authorIds: ['jeffrey-heer'],
-    keywords: ['colormap design', 'color accessibility', 'graphical perception', 'empirical user study'],
-    abstract:
-      'Evaluates single-hue, multi-hue luminance-monotonic (viridis, magma), and diverging quantitative colormaps across spatial judgment and value comparison experiments.',
-    references: ['vis-2010-perception', 'vis-2009-nested'],
-  },
-  {
-    id: 'vis-2018-imagining-replications',
-    title: 'Imagining Replications: Graphical Prediction & Discrete Visualizations Improve Recall & Estimation of Effect Uncertainty',
-    year: 2018,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2017.2743898',
-    citationCount: 410,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.85, 'topic-7': 0.09, 'topic-5': 0.06 },
-    authorIds: ['jessica-hullman'],
-    keywords: ['uncertainty perception', 'graphical perception', 'empirical user study', 'crowdsourced evaluation'],
-    abstract:
-      'Shows through controlled experiments that prompting users to draw their prior expectations before viewing discrete outcome plots improves recall and uncertainty calibration.',
-    references: ['vis-2015-hops', 'vis-2016-quantile-dotplots'],
-  },
-  {
-    id: 'vis-2020-design-study-rigor',
-    title: 'Criteria for Rigor in Visualization Design Study',
-    year: 2020,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2019.2934260',
-    citationCount: 510,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.86, 'topic-5': 0.08, 'topic-2': 0.06 },
-    authorIds: ['miriah-meyer'],
-    keywords: ['design methodology', 'empirical user study', 'visual encoding'],
-    abstract:
-      'Articulates epistemological foundations and six actionable criteria for establishing rigor, reflexivity, and resonance in applied visualization design studies.',
-    references: ['vis-2009-nested', 'vis-2012-sedlmair'],
-  },
-  {
-    id: 'vis-2021-action-design',
-    title: 'Action Design Research and Visualization Design',
-    year: 2021,
-    venue: 'IEEE VIS',
-    doi: '10.1109/BELIV51497.2020.00010',
-    citationCount: 240,
-    primaryTopicId: 'topic-4',
-    topicScores: { 'topic-4': 0.84, 'topic-5': 0.10, 'topic-2': 0.06 },
-    authorIds: ['miriah-meyer'],
-    keywords: ['design methodology', 'empirical user study', 'visual encoding'],
-    abstract:
-      'Connects Action Design Research (ADR) from information systems to iterative, organizationally embedded visualization design and validation.',
-    references: ['vis-2012-sedlmair', 'vis-2020-design-study-rigor'],
-  },
-
-  // ===========================================================================
-  // TOPIC 5: Interaction Techniques & Human-in-the-Loop (17 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-2004-prefuse',
-    title: 'Prefuse: A Toolkit for Interactive Information Visualization',
-    year: 2005,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/1054972.1055031',
-    citationCount: 2340,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.85, 'topic-0': 0.10, 'topic-4': 0.05 },
-    authorIds: ['jeffrey-heer'],
-    keywords: ['authoring systems', 'direct manipulation', 'interactive brushing', 'linked multi-views'],
-    abstract:
-      'Prefuse introduces an extensible software architecture for building interactive visualizations based on the information visualization reference model, decoupling abstract data tables from visual items, layout actions, and interactive controls.',
-    references: ['vis-1997-h3'],
-  },
-  {
-    id: 'vis-2007-dynaquery',
-    title: 'Animated Transitions in Statistical Data Graphics',
-    year: 2007,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2007.70539',
-    citationCount: 1360,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.76, 'topic-4': 0.18, 'topic-3': 0.06 },
-    authorIds: ['jeffrey-heer'],
-    keywords: ['animated transitions', 'direct manipulation', 'interactive brushing', 'linked multi-views'],
-    abstract:
-      'We investigate the design of staged animated transitions between statistical data graphics (scatterplots, bar charts, pie charts, and treemaps) and demonstrate significant object-tracking accuracy gains in controlled user experiments.',
-    references: ['vis-2004-prefuse', 'vis-2000-cushion'],
-  },
-  {
-    id: 'vis-2009-protovis',
-    title: 'Protovis: A Graphical Toolkit for Visualization',
-    year: 2009,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2009.174',
-    citationCount: 1890,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.88, 'topic-0': 0.07, 'topic-4': 0.05 },
-    authorIds: ['michael-bostock', 'jeffrey-heer'],
-    keywords: ['declarative grammar', 'authoring systems', 'direct manipulation', 'vega-lite & d3'],
-    abstract:
-      'Protovis is an extensible visualization toolkit that composes simple graphical marks (bars, dots, lines, labels) with data-driven property functions to construct custom visualizations without low-level graphics programming.',
-    references: ['vis-2004-prefuse', 'vis-2007-dynaquery'],
-  },
-  {
-    id: 'vis-2010-hier-agg',
-    title: 'Hierarchical Aggregation for Information Visualization: Overview, Techniques, and Design Guidelines',
-    year: 2010,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2009.84',
-    citationCount: 920,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.74, 'topic-0': 0.16, 'topic-3': 0.10 },
-    authorIds: ['niklas-elmqvist', 'jean-daniel-fekete'],
-    keywords: ['interactive brushing', 'linked multi-views', 'direct manipulation'],
-    abstract:
-      'Provides a unified design model and interaction taxonomy for multi-scale hierarchical aggregation across treemaps, parallel coordinates, and node-link diagrams.',
-    references: ['vis-2008-zame', 'vis-2008-scatterdice'],
-  },
-  {
-    id: 'vis-2011-d3',
-    title: 'D3: Data-Driven Documents',
-    year: 2011,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2011.185',
-    citationCount: 6840,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.84, 'topic-0': 0.10, 'topic-4': 0.06 },
-    authorIds: ['michael-bostock', 'vadim-ogievetsky', 'jeffrey-heer'],
-    keywords: ['declarative grammar', 'vega-lite & d3', 'direct manipulation', 'animated transitions', 'authoring systems'],
-    abstract:
-      'Data-Driven Documents (D3) is a representation-transparent approach to visualization for the web. Rather than hide the underlying scenegraph within a toolkit-specific abstraction, D3 enables direct inspection and manipulation of a standard document object model (DOM).',
-    references: ['vis-2009-protovis', 'vis-2009-nested'],
-  },
-  {
-    id: 'vis-2011-tidy-wrangler',
-    title: 'Wrangler: Interactive Visual Specification of Data Transformation Scripts',
-    year: 2011,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/1978942.1979444',
-    citationCount: 1210,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.80, 'topic-2': 0.12, 'topic-7': 0.08 },
-    authorIds: ['jeffrey-heer'],
-    keywords: ['direct manipulation', 'chart recommendation', 'authoring systems', 'declarative grammar'],
-    abstract:
-      'Combines direct manipulation of tabular data with mixed-initiative inference of declarative transformation scripts and live visual anomaly previews.',
-    references: ['vis-2009-protovis', 'vis-2010-perception'],
-  },
-  {
-    id: 'vis-2012-beyond-mouse',
-    title: 'Beyond Mouse and Keyboard: Expanding Design Considerations for Information Visualization Interactions',
-    year: 2012,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2012.204',
-    citationCount: 680,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.85, 'topic-4': 0.10, 'topic-6': 0.05 },
-    authorIds: ['bongshin-lee'],
-    keywords: ['direct manipulation', 'interactive brushing', 'authoring systems'],
-    abstract:
-      'Articulates the research agenda for post-WIMP information visualization interactions across multi-touch surfaces, pen sketching, gestural input, and embodied physical displays.',
-    references: ['vis-2007-dynaquery', 'vis-2006-treeplus'],
-  },
-  {
-    id: 'vis-2014-lyra',
-    title: 'Lyra: An Interactive Visualization Design Environment',
-    year: 2014,
-    venue: 'IEEE InfoVis',
-    doi: '10.1111/cgf.12391',
-    citationCount: 720,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.84, 'topic-4': 0.10, 'topic-7': 0.06 },
-    authorIds: ['arvind-satyanarayan', 'jeffrey-heer'],
-    keywords: ['authoring systems', 'direct manipulation', 'declarative grammar', 'vega-lite & d3'],
-    abstract:
-      'Lyra enables designers to create custom visualizations via direct manipulation of marks, scales, and guides without writing code, compiling directly to a declarative visualization grammar.',
-    references: ['vis-2011-d3', 'vis-2009-protovis'],
-  },
-  {
-    id: 'vis-2016-voyager',
-    title: 'Voyager: Exploratory Analysis via Faceted Browsing of Visualization Recommendations',
-    year: 2016,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2015.2467091',
-    citationCount: 940,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.79, 'topic-3': 0.13, 'topic-4': 0.08 },
-    authorIds: ['kanit-wongsuphasawat', 'dominik-moritz', 'jeffrey-heer'],
-    keywords: ['chart recommendation', 'linked multi-views', 'declarative grammar', 'interactive brushing'],
-    abstract:
-      'Voyager couples manual chart specification with automated perceptual chart recommendations organized into a faceted gallery to support breadth-oriented exploratory data analysis.',
-    references: ['vis-2011-d3', 'vis-2014-lyra', 'vis-2010-perception'],
-  },
-  {
-    id: 'vis-2016-reactive-vega',
-    title: 'Reactive Vega: A Streaming Dataflow Architecture for Declarative Interactive Visualization',
-    year: 2016,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2015.2467095',
-    citationCount: 810,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.86, 'topic-0': 0.08, 'topic-2': 0.06 },
-    authorIds: ['arvind-satyanarayan', 'dominik-moritz', 'kanit-wongsuphasawat', 'jeffrey-heer'],
-    keywords: ['declarative grammar', 'vega-lite & d3', 'interactive brushing', 'direct manipulation'],
-    abstract:
-      'Reactive Vega models user input events and streaming data updates as first-class reactive dataflow signals inside a declarative visualization grammar.',
-    references: ['vis-2011-d3', 'vis-2014-lyra'],
-  },
-  {
-    id: 'vis-2017-vegalite',
-    title: 'Vega-Lite: A Grammar of Interactive Graphics',
-    year: 2017,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2016.2599030',
-    citationCount: 2190,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.86, 'topic-3': 0.08, 'topic-4': 0.06 },
-    authorIds: ['arvind-satyanarayan', 'dominik-moritz', 'kanit-wongsuphasawat', 'jeffrey-heer'],
-    keywords: ['vega-lite & d3', 'declarative grammar', 'interactive brushing', 'linked multi-views', 'authoring systems'],
-    abstract:
-      'We present Vega-Lite, a high-level declarative grammar that enables rapid specification of interactive data visualizations. Vega-Lite combines visual encoding rules and composition algebra (layering, faceting, concatenation) with a declarative selection abstraction for interactive brushing and linking.',
-    references: ['vis-2011-d3', 'vis-2016-reactive-vega', 'vis-2016-voyager'],
-  },
-  {
-    id: 'vis-2018-peerlens',
-    title: 'PeerLens: Peer-inspired Interactive Learning Path Planning in Online Question Pool',
-    year: 2019,
-    venue: 'IEEE VIS',
-    doi: '10.1145/3290605.3300864',
-    citationCount: 245,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.62, 'topic-2': 0.28, 'topic-4': 0.10 },
-    authorIds: ['meng-xia-0002', 'mingfei-sun', 'huan-wei', 'qing-chen', 'yong-wang', 'lei-shi', 'huamin-qu-0001', 'xiaojuan-ma'],
-    keywords: ['interactive brushing', 'chart recommendation', 'linked multi-views', 'authoring systems'],
-    abstract:
-      'We present PeerLens, an interactive visual analytics system that models peer learning trajectories and provides adaptive visual path recommendations to help learners plan personalized problem-solving sequences in online question pools.',
-    references: ['vis-2017-vegalite', 'vis-2016-dropoutseer'],
-  },
-  {
-    id: 'vis-2019-draco',
-    title: 'Formalizing Visualization Design Knowledge as Constraints: Actionable and Extensible Models in Draco',
-    year: 2019,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2018.2865240',
-    citationCount: 685,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.68, 'topic-4': 0.20, 'topic-2': 0.12 },
-    authorIds: ['dominik-moritz', 'jeffrey-heer'],
-    keywords: ['chart recommendation', 'declarative grammar', 'vega-lite & d3', 'authoring systems'],
-    abstract:
-      'We introduce Draco, a formal framework that represents visualization design guidelines as hard and soft answer-set programming constraints over Vega-Lite specifications, learning perceptual weights from experimental rank data.',
-    references: ['vis-2017-vegalite', 'vis-2016-voyager', 'vis-2010-perception'],
-  },
-  {
-    id: 'vis-2019-charticulator',
-    title: 'Charticulator: Interactive Construction of Bespoke Chart Layouts',
-    year: 2019,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2018.2865158',
-    citationCount: 530,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.84, 'topic-0': 0.10, 'topic-7': 0.06 },
-    authorIds: ['bongshin-lee'],
-    keywords: ['authoring systems', 'direct manipulation', 'declarative grammar'],
-    abstract:
-      'Charticulator enables designers to create bespoke, reusable chart layouts without programming by transforming interactive mark-snapping gestures into layout constraints solved by a linear constraint solver.',
-    references: ['vis-2014-lyra', 'vis-2017-vegalite', 'vis-2012-beyond-mouse'],
-  },
-  {
-    id: 'vis-2020-lyra2',
-    title: 'Lyra 2: Designing Interactive Visualizations by Demonstration',
-    year: 2020,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2020.3030369',
-    citationCount: 240,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.86, 'topic-4': 0.08, 'topic-2': 0.06 },
-    authorIds: ['arvind-satyanarayan'],
-    keywords: ['authoring systems', 'direct manipulation', 'declarative grammar', 'interactive brushing'],
-    abstract:
-      'Enables visualization authors to specify rich interactive behaviors—brushing, panning, zooming, and linked filtering—by directly demonstrating gestures on the target graphical canvas.',
-    references: ['vis-2014-lyra', 'vis-2017-vegalite'],
-  },
-  {
-    id: 'vis-2022-printed-ar',
-    title: 'Exploring Interactions with Printed Data Visualizations in Augmented Reality',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2022.3209386',
-    citationCount: 165,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.78, 'topic-4': 0.14, 'topic-6': 0.08 },
-    authorIds: ['wai-tong', 'zhutian-chen', 'meng-xia-0002', 'leo-yu-ho-lo', 'linping-yuan', 'bongshin-lee', 'huamin-qu-0001'],
-    keywords: ['direct manipulation', 'interactive brushing', 'linked multi-views', 'authoring systems'],
-    abstract:
-      'Investigates how head-mounted augmented reality overlays can bring static printed charts to life with interactive filtering, dynamic tooltips, and 3D spatial comparisons while preserving paper tangibility.',
-    references: ['vis-2012-beyond-mouse', 'vis-2017-vegalite'],
-  },
-  {
-    id: 'vis-2023-mosaic',
-    title: 'Mosaic: An Architecture for Scalable & Interactive Data Views',
-    year: 2023,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2023.3327189',
-    citationCount: 310,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.82, 'topic-3': 0.12, 'topic-2': 0.06 },
-    authorIds: ['jeffrey-heer', 'dominik-moritz'],
-    keywords: ['declarative grammar', 'interactive brushing', 'linked multi-views', 'vega-lite & d3'],
-    abstract:
-      'Mosaic links declarative visualization views and UI widgets through a centralized coordinator that optimizes analytical SQL queries, data cubes, and pre-aggregated indexes in DuckDB for real-time cross-filtering over billion-row datasets.',
-    references: ['vis-2017-vegalite', 'vis-2016-reactive-vega', 'vis-2011-d3'],
-  },
-  {
-    id: 'vis-2024-vistellar',
-    title: 'VisTellAR: Embedding Data Visualization to Short-Form Videos Using Mobile Augmented Reality',
-    year: 2024,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2024.3385732',
-    citationCount: 85,
-    primaryTopicId: 'topic-5',
-    topicScores: { 'topic-5': 0.75, 'topic-7': 0.17, 'topic-4': 0.08 },
-    authorIds: ['wai-tong', 'kentaro-go', 'meng-xia-0002', 'linping-yuan', 'huamin-qu-0001'],
-    keywords: ['authoring systems', 'direct manipulation', 'animated transitions'],
-    abstract:
-      'Presents VisTellAR, a mobile augmented reality authoring system that empowers creators to anchor, animate, and synchronize data-driven charts directly with physical objects and human gestures in short-form videos.',
-    references: ['vis-2022-printed-ar', 'vis-2019-charticulator'],
-  },
-
-  // ===========================================================================
-  // TOPIC 6: Geospatial & Spatial Data (10 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-1996-lifelines',
-    title: 'LifeLines: Visualizing Personal Histories',
-    year: 1996,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/238386.238493',
-    citationCount: 1640,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.72, 'topic-5': 0.18, 'topic-7': 0.10 },
-    authorIds: ['catherine-plaisant', 'ben-shneiderman'],
-    keywords: ['space-time cube', 'spatial aggregation', 'movement trajectories', 'geovisual analytics'],
-    abstract:
-      'Introduces a general visualization environment for personal medical, legal, and biographical histories using faceted horizontal time bars, color-coded severity, and semantic zooming.',
-    references: [],
-  },
-  {
-    id: 'vis-2003-exploratory-spatiotemporal',
-    title: 'Exploratory Spatio-Temporal Visualization: An Analytical Review',
-    year: 2003,
-    venue: 'IEEE InfoVis',
-    doi: '10.1016/S1045-926X(03)00046-6',
-    citationCount: 1490,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.88, 'topic-4': 0.07, 'topic-3': 0.05 },
-    authorIds: ['natalia-andrienko', 'gennady-andrienko'],
-    keywords: ['geovisual analytics', 'space-time cube', 'movement trajectories', 'choropleth maps'],
-    abstract:
-      'Systematically classifies exploratory spatio-temporal visualization techniques according to data types (events, trajectories, spatial time series) and Bertin/Peuquet question typologies (when, where, what).',
-    references: ['vis-1996-lifelines'],
-  },
-  {
-    id: 'vis-2008-andrienko',
-    title: 'Spatio-Temporal Aggregation for Visual Analysis of Movements',
-    year: 2008,
-    venue: 'IEEE VAST',
-    doi: '10.1109/VAST.2008.4677356',
-    citationCount: 1380,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.88, 'topic-0': 0.07, 'topic-3': 0.05 },
-    authorIds: ['gennady-andrienko', 'natalia-andrienko'],
-    keywords: ['movement trajectories', 'spatial aggregation', 'origin-destination flows', 'geovisual analytics'],
-    abstract:
-      'Plotting thousands of raw GPS movement trajectories on a map quickly creates an illegible tangle of lines. We introduce Voronoi spatial tessellation and temporal aggregation methods that summarize tracks into directional flow vectors.',
-    references: ['vis-2003-exploratory-spatiotemporal'],
-  },
-  {
-    id: 'vis-2009-lifelines2',
-    title: 'Lifelines2: Discovering Temporal Categorical Patterns Across Multiple Records',
-    year: 2009,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/1357054.1357129',
-    citationCount: 890,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.74, 'topic-5': 0.16, 'topic-3': 0.10 },
-    authorIds: ['catherine-plaisant', 'ben-shneiderman'],
-    keywords: ['spatial aggregation', 'space-time cube', 'geovisual analytics'],
-    abstract:
-      'Introduces the Align, Rank, and Filter (ARF) interaction framework for discovering temporal precursor and co-occurrence patterns across thousands of electronic health records.',
-    references: ['vis-1996-lifelines'],
-  },
-  {
-    id: 'vis-2010-spatiotemporal-va',
-    title: 'Space, Time and Visual Analytics',
-    year: 2010,
-    venue: 'IEEE VAST',
-    doi: '10.1080/13658816.2010.508043',
-    citationCount: 1120,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.86, 'topic-2': 0.08, 'topic-4': 0.06 },
-    authorIds: ['gennady-andrienko', 'natalia-andrienko'],
-    keywords: ['geovisual analytics', 'space-time cube', 'movement trajectories', 'spatial aggregation'],
-    abstract:
-      'Establishes the research roadmap for spatio-temporal visual analytics, integrating computational trajectory mining, geographic information systems, and interactive space-time cube representations.',
-    references: ['vis-2008-andrienko', 'vis-2003-exploratory-spatiotemporal'],
-  },
-  {
-    id: 'vis-2013-eventflow-clinical',
-    title: 'EventFlow: Visual Analysis of Temporal Event Sequences',
-    year: 2013,
-    venue: 'IEEE VAST',
-    doi: '10.1016/j.jbi.2013.06.006',
-    citationCount: 760,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.75, 'topic-5': 0.15, 'topic-7': 0.10 },
-    authorIds: ['catherine-plaisant', 'ben-shneiderman'],
-    keywords: ['spatial aggregation', 'space-time cube', 'movement trajectories'],
-    abstract:
-      'Aggregates both point events and interval sequences into a unified prefix-tree overview display paired with individual timeline records for spatio-clinical cohort analysis.',
-    references: ['vis-2009-lifelines2', 'vis-1996-lifelines'],
-  },
-  {
-    id: 'vis-2013-va-movement',
-    title: 'Visual Analytics of Movement: An Overview of Methods, Tools and Procedures',
-    year: 2013,
-    venue: 'IEEE VAST',
-    doi: '10.1177/1473871612457601',
-    citationCount: 1290,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.85, 'topic-3': 0.09, 'topic-2': 0.06 },
-    authorIds: ['gennady-andrienko', 'natalia-andrienko', 'daniel-keim'],
-    keywords: ['movement trajectories', 'origin-destination flows', 'urban mobility', 'geovisual analytics'],
-    abstract:
-      'Synthesizes visual analytics methods for analyzing moving objects—from trajectory clustering and origin-destination flow matrices to context-aware environmental linking.',
-    references: ['vis-2008-andrienko', 'vis-2010-spatiotemporal-va'],
-  },
-  {
-    id: 'vis-2016-va-urban-survey',
-    title: 'Visual Analytics of Urban Data: A Survey',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2016.2586996',
-    citationCount: 640,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.84, 'topic-2': 0.10, 'topic-3': 0.06 },
-    authorIds: ['wei-chen-0001'],
-    keywords: ['urban mobility', 'origin-destination flows', 'choropleth maps', 'geovisual analytics'],
-    abstract:
-      'Reviews urban visual analytics systems across human mobility, transit networks, telecommunications, environmental sensing, and metropolitan emergency management.',
-    references: ['vis-2008-andrienko', 'vis-2013-va-movement'],
-  },
-  {
-    id: 'vis-2018-streetvizor',
-    title: 'StreetVizor: Visual Exploration of Human-Scale Urban Forms Based on Street Views',
-    year: 2018,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2017.2744159',
-    citationCount: 440,
-    primaryTopicId: 'topic-6',
-    topicScores: { 'topic-6': 0.80, 'topic-2': 0.14, 'topic-3': 0.06 },
-    authorIds: ['huamin-qu-0001'],
-    keywords: ['urban mobility', 'spatial aggregation', 'choropleth maps', 'geovisual analytics'],
-    abstract:
-      'Combines deep semantic segmentation of city-wide street view imagery with multiscale spatial aggregation and horizon ring glyphs to compare human-scale urban greenery, sky openness, and building facades.',
-    references: ['vis-2016-va-urban-survey', 'vis-2008-andrienko'],
-  },
-
-  // ===========================================================================
-  // TOPIC 7: Text & Document Analytics (13 Verified Papers)
-  // ===========================================================================
-  {
-    id: 'vis-2008-jigsaw',
-    title: 'Jigsaw: Supporting Investigative Analysis through Interactive Visualization',
-    year: 2008,
-    venue: 'IEEE VAST',
-    doi: '10.1057/palgrave.ivs.9500180',
-    citationCount: 1210,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.86, 'topic-0': 0.08, 'topic-5': 0.06 },
-    authorIds: ['john-stasko'],
-    keywords: ['investigative sensemaking', 'entity co-occurrence', 'document collections', 'keyword extraction'],
-    abstract:
-      'Jigsaw connects people, places, dates, and organizations extracted from unstructured intelligence reports across coordinated list, graph, scatter, and calendar views to guide investigative sensemaking.',
-    references: ['vis-1996-lifelines'],
-  },
-  {
-    id: 'vis-2010-narrative',
-    title: 'Narrative Visualization: Telling Stories with Data',
-    year: 2010,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2010.179',
-    citationCount: 2940,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.78, 'topic-5': 0.14, 'topic-4': 0.08 },
-    authorIds: ['edward-segel', 'jeffrey-heer'],
-    keywords: ['narrative storytelling', 'document collections', 'discourse timelines', 'investigative sensemaking'],
-    abstract:
-      'Data visualization is increasingly used for narrative storytelling in journalism and public policy. We analyze 58 narrative visualizations to identify seven genres and design patterns balancing author-driven structure (martini glass, interactive slideshow) with reader-driven exploration.',
-    references: ['vis-2009-nested', 'vis-2007-dynaquery'],
-  },
-  {
-    id: 'vis-2011-textflow',
-    title: 'TextFlow: Towards Better Understanding of Evolving Topics in Text',
-    year: 2011,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2011.239',
-    citationCount: 770,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.85, 'topic-0': 0.09, 'topic-2': 0.06 },
-    authorIds: ['shixia-liu-0001', 'huamin-qu-0001'],
-    keywords: ['topic evolution streams', 'discourse timelines', 'keyword extraction', 'text summarization'],
-    abstract:
-      'Visualizes topic birth, death, splitting, and merging events alongside critical keyword threads in evolving document streams using a river-flow metaphor.',
-    references: ['vis-2008-jigsaw', 'vis-2010-narrative'],
-  },
-  {
-    id: 'vis-2012-tiara',
-    title: 'TIARA: Interactive, Topic-Based Visual Text Summarization and Analysis',
-    year: 2012,
-    venue: 'IEEE VAST',
-    doi: '10.1145/2336664.2336668',
-    citationCount: 890,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.86, 'topic-2': 0.08, 'topic-5': 0.06 },
-    authorIds: ['shixia-liu-0001'],
-    keywords: ['text summarization', 'topic evolution streams', 'keyword extraction', 'document collections'],
-    abstract:
-      'Embeds time-sensitive keyword clouds directly inside Latent Dirichlet Allocation (LDA) topic evolution layers to summarize large email and clinical document collections.',
-    references: ['vis-2011-textflow', 'vis-2008-jigsaw'],
-  },
-  {
-    id: 'vis-2013-sketchstory',
-    title: 'SketchStory: Telling More Engaging Stories with Data through Freeform Sketching',
-    year: 2013,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2013.191',
-    citationCount: 540,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.74, 'topic-5': 0.20, 'topic-4': 0.06 },
-    authorIds: ['bongshin-lee'],
-    keywords: ['narrative storytelling', 'discourse timelines', 'document collections'],
-    abstract:
-      'Empowers presenters on interactive whiteboards to sketch freeform chart icons that dynamically bind to underlying datasets and animate during live data-driven storytelling.',
-    references: ['vis-2010-narrative', 'vis-2012-beyond-mouse'],
-  },
-  {
-    id: 'vis-2016-topicpanorama',
-    title: 'TopicPanorama: A Full Picture of Relevant Topics',
-    year: 2016,
-    venue: 'IEEE VAST',
-    doi: '10.1109/TVCG.2016.2534558',
-    citationCount: 410,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.83, 'topic-0': 0.11, 'topic-2': 0.06 },
-    authorIds: ['shixia-liu-0001'],
-    keywords: ['document collections', 'topic evolution streams', 'keyword extraction', 'text summarization'],
-    abstract:
-      'Matches correlated topic hierarchies extracted across multiple heterogeneous text sources (news, social media, blogs) and displays them in a radially packed icicle and density map.',
-    references: ['vis-2011-textflow', 'vis-2012-tiara'],
-  },
-  {
-    id: 'vis-2017-graphscape',
-    title: 'GraphScape: A Model for Automated Reasoning about Visualization Similarity and Sequencing',
-    year: 2017,
-    venue: 'IEEE InfoVis',
-    doi: '10.1145/3025453.3025866',
-    citationCount: 420,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.68, 'topic-5': 0.22, 'topic-0': 0.10 },
-    authorIds: ['jessica-hullman', 'jeffrey-heer'],
-    keywords: ['narrative storytelling', 'discourse timelines', 'document collections'],
-    abstract:
-      'Models Vega-Lite specifications as nodes in a directed graph weighted by edit-operation transition costs to recommend coherent chart sequences for narrative data presentations.',
-    references: ['vis-2010-narrative', 'vis-2011-rhetoric', 'vis-2017-vegalite'],
-  },
-  {
-    id: 'vis-2019-infographic-timeline',
-    title: 'Towards Automated Infographic Design: Deep Learning-based Auto-Extraction of Extensible Timeline',
-    year: 2019,
-    venue: 'IEEE InfoVis',
-    doi: '10.1109/TVCG.2019.2934810',
-    citationCount: 315,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.76, 'topic-2': 0.16, 'topic-5': 0.08 },
-    authorIds: ['yong-wang', 'huamin-qu-0001'],
-    keywords: ['narrative storytelling', 'discourse timelines', 'document collections'],
-    abstract:
-      'Uses a multi-task deep neural network to parse bitmap timeline infographics into extensible templates that automatically re-target new temporal event sequences.',
-    references: ['vis-2010-narrative', 'vis-2013-sketchstory'],
-  },
-  {
-    id: 'vis-2019-k12-learning',
-    title: 'Visual Analytics of Student Learning Behaviors on K-12 Mathematics E-learning Platforms',
-    year: 2019,
-    venue: 'IEEE VIS',
-    doi: '10.48550/arXiv.1909.04749',
-    citationCount: 118,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.66, 'topic-2': 0.24, 'topic-5': 0.10 },
-    authorIds: ['meng-xia-0002', 'huan-wei', 'mingfei-sun', 'yong-wang', 'huamin-qu-0001'],
-    keywords: ['discourse timelines', 'investigative sensemaking', 'document collections'],
-    abstract:
-      'Analyzes longitudinal student exercise logs and curriculum concept progression across K-12 mathematics e-learning platforms to help teachers identify knowledge mastery gaps.',
-    references: ['vis-2018-peerlens', 'vis-2016-dropoutseer'],
-  },
-  {
-    id: 'vis-2021-genni',
-    title: 'GenNI: Human-AI Collaboration for Data-Backed Text Generation',
-    year: 2021,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2021.3114845',
-    citationCount: 230,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.72, 'topic-2': 0.20, 'topic-5': 0.08 },
-    authorIds: ['hendrik-strobelt', 'hanspeter-pfister'],
-    keywords: ['text summarization', 'narrative storytelling', 'document collections'],
-    abstract:
-      'Combines neural text generation with explicit human-steered control graphs so domain analysts can author factual, data-backed summary reports without hallucinated claims.',
-    references: ['vis-2019-seq2seq', 'vis-2010-narrative'],
-  },
-  {
-    id: 'vis-2021-visummit',
-    title: 'Accessible Visualization via Natural Language Descriptions: A Four-Level Model of Semantic Content',
-    year: 2021,
-    venue: 'IEEE VIS',
-    doi: '10.1109/TVCG.2021.3114770',
-    citationCount: 380,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.74, 'topic-4': 0.16, 'topic-5': 0.10 },
-    authorIds: ['arvind-satyanarayan'],
-    keywords: [], // Exercises graceful title keyword fallback without dropping record
-    abstract: '', // Exercises graceful title fallback without dropping record
-    references: ['vis-2010-narrative', 'vis-2017-vegalite'],
-  },
-  {
-    id: 'vis-2022-persua',
-    title: 'Persua: A Visual Interactive System to Enhance the Persuasiveness of Arguments in Online Discussion',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1145/3555195',
-    citationCount: 145,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.79, 'topic-2': 0.13, 'topic-5': 0.08 },
-    authorIds: ['meng-xia-0002', 'qian-zhu', 'xingbo-wang', 'fei-nie', 'huamin-qu-0001', 'xiaojuan-ma'],
-    keywords: ['document collections', 'text summarization', 'narrative storytelling', 'discourse timelines'],
-    abstract:
-      'Persua analyzes persuasion strategies in online debate forums and provides real-time visual feedback and exemplar retrieval to help writers strengthen the evidence and structure of their arguments.',
-    references: ['vis-2010-narrative', 'vis-2018-peerlens'],
-  },
-  {
-    id: 'vis-2022-rlens',
-    title: 'RLens: A Computer-aided Visualization System for Supporting Reflection on Language Learning under Distributed Tutorship',
-    year: 2022,
-    venue: 'IEEE VIS',
-    doi: '10.1145/3491140.3528265',
-    citationCount: 112,
-    primaryTopicId: 'topic-7',
-    topicScores: { 'topic-7': 0.75, 'topic-5': 0.15, 'topic-2': 0.10 },
-    authorIds: ['meng-xia-0002', 'yankun-zhao', 'jieqiong-zhao', 'jianbo-tang', 'xiaojuan-ma', 'juho-kim'],
-    keywords: ['discourse timelines', 'text summarization', 'document collections', 'keyword extraction'],
-    abstract:
-      'RLens visualizes instructor feedback, grammar error trajectories, and speaking fluency across distributed tutoring sessions to help language learners reflect on their longitudinal progress.',
-    references: ['vis-2020-qlens', 'vis-2018-peerlens'],
-  },
-];
-
-// Export strictly the verified, real papers (zero synthetic/procedural papers)
-export const RAW_PAPERS: RawPaperRecord[] = CURATED_RAW_PAPERS;
-
-const BASE_TOPICS: Array<Omit<TopicSummary, 'paperCount' | 'totalCitations'>> = [
+export const BASE_TOPICS: TopicDefinition[] = [
   {
     id: 'topic-0',
     name: 'Graph & Network Visualization',
     shortName: 'Graph & Network',
-    color: '#2563EB', // Cobalt Blue
+    color: '#2B5C8F',
     description:
       'Investigates how to draw complex networks, hierarchies, and connected systems clearly without tangled links.',
     keywordGroupingSummary:
-      'These terms group together because researchers pair node-link layouts, edge bundling, and adjacency matrices to untangle dense networks.',
-    topKeywords: [
-      { term: 'edge bundling', weight: 0.142 },
-      { term: 'force-directed layout', weight: 0.128 },
-      { term: 'node-link diagram', weight: 0.115 },
-      { term: 'adjacency matrix', weight: 0.094 },
-      { term: 'graph drawing', weight: 0.088 },
-      { term: 'hierarchical trees', weight: 0.079 },
-      { term: 'community clusters', weight: 0.068 },
-      { term: 'dynamic networks', weight: 0.061 },
+      'Co-occurs in papers designing readable node-link diagrams, matrix views, tree layouts, and edge-bundling algorithms.',
+    vocab: [
+      ['graph drawing', 4.2],
+      ['node-link', 4.0],
+      ['edge bundling', 4.2],
+      ['force-directed', 3.8],
+      ['adjacency matrix', 3.8],
+      ['treemap', 3.8],
+      ['hierarchy', 3.0],
+      ['hierarchical', 2.8],
+      ['graph', 3.2],
+      ['graphs', 3.2],
+      ['network', 2.9],
+      ['networks', 2.9],
+      ['tree', 2.4],
+      ['trees', 2.4],
+      ['layout', 2.2],
+      ['edge', 2.2],
+      ['edges', 2.2],
+      ['node', 2.0],
+      ['nodes', 2.0],
+      ['chord', 2.2],
+      ['planar', 2.8],
+      ['crossing', 2.4],
+      ['subgraph', 3.0],
+      ['bipartite', 3.0],
+      ['hypergraph', 3.4],
+      ['dynamic graph', 3.8],
+      ['dynamic network', 3.8],
+      ['ego-network', 3.4],
+      ['community detection', 2.8],
+      ['social network', 2.8],
+      ['citation network', 2.8],
+      ['taxonomy', 2.0],
     ],
-    peakYear: 2016,
-    growthRate: 6.4,
+    seedKeywords: [
+      { term: 'graph drawing', weight: 0.2 },
+      { term: 'node-link diagram', weight: 0.18 },
+      { term: 'edge bundling', weight: 0.16 },
+      { term: 'treemap', weight: 0.14 },
+      { term: 'dynamic network', weight: 0.12 },
+      { term: 'adjacency matrix', weight: 0.1 },
+      { term: 'force-directed layout', weight: 0.06 },
+      { term: 'hierarchy', weight: 0.04 },
+    ],
+    conferencePrior: { 'IEEE InfoVis': 0.25 },
   },
   {
     id: 'topic-1',
     name: 'Scientific & Volume Visualization (SciVis)',
     shortName: 'SciVis & Volume',
-    color: '#0D9488', // Teal
+    color: '#1F9D8B',
     description:
-      'Focuses on rendering 3D medical scans, fluid flows, and physical simulations from engineering, climate, and biology.',
+      'Focuses on rendering medical scans, fluid flows, scalar/vector fields, and physical simulations from engineering and biology.',
     keywordGroupingSummary:
-      'These terms co-occur in papers that trace 3D fluid streamlines and render volumetric CT/MRI or astrophysics data on GPUs.',
-    topKeywords: [
-      { term: 'volume ray-casting', weight: 0.156 },
-      { term: 'transfer functions', weight: 0.134 },
-      { term: 'isosurfaces', weight: 0.119 },
-      { term: 'flow streamlines', weight: 0.104 },
-      { term: 'vector fields', weight: 0.092 },
-      { term: 'turbulence vortices', weight: 0.081 },
-      { term: 'gpu rendering', weight: 0.075 },
-      { term: 'ensemble simulation', weight: 0.064 },
+      'Groups around algorithms for direct volume rendering, flow streamlines, isosurfaces, unstructured meshes, and topological data analysis.',
+    vocab: [
+      ['volume rendering', 4.2],
+      ['direct volume', 4.0],
+      ['ray casting', 3.8],
+      ['ray-casting', 3.8],
+      ['transfer function', 3.8],
+      ['isosurface', 3.8],
+      ['isosurfaces', 3.8],
+      ['marching cubes', 3.8],
+      ['scalar field', 3.6],
+      ['vector field', 3.6],
+      ['tensor field', 3.6],
+      ['flow visualization', 3.8],
+      ['streamline', 3.5],
+      ['streamlines', 3.5],
+      ['pathline', 3.5],
+      ['stream surface', 3.6],
+      ['fluid', 3.2],
+      ['vortex', 3.4],
+      ['turbulence', 3.2],
+      ['molecular', 3.2],
+      ['medical visualization', 3.8],
+      ['ct', 2.8],
+      ['mri', 3.0],
+      ['unstructured mesh', 3.8],
+      ['unstructured grid', 3.8],
+      ['tetrahedral', 3.5],
+      ['hexahedral', 3.5],
+      ['topological data analysis', 3.8],
+      ['morse-smale', 3.8],
+      ['scientific visualization', 3.4],
     ],
-    peakYear: 2008,
-    growthRate: -8.2,
+    seedKeywords: [
+      { term: 'volume rendering', weight: 0.22 },
+      { term: 'flow visualization', weight: 0.18 },
+      { term: 'isosurface', weight: 0.16 },
+      { term: 'transfer function', weight: 0.14 },
+      { term: 'vector field', weight: 0.11 },
+      { term: 'scalar field', weight: 0.08 },
+      { term: 'unstructured mesh', weight: 0.06 },
+      { term: 'topological data analysis', weight: 0.05 },
+    ],
+    conferencePrior: { 'IEEE SciVis': 0.45 },
   },
   {
     id: 'topic-2',
     name: 'Visual Analytics & Machine Learning / XAI',
     shortName: 'Visual Analytics & XAI',
-    color: '#7C3AED', // Violet
+    color: '#7B5EA7',
     description:
       'Designs interactive visual tools that help people inspect, debug, steer, and explain machine learning and AI models.',
     keywordGroupingSummary:
-      'These terms cluster around opening black-box neural networks, inspecting transformer attention, and human-guided model training.',
-    topKeywords: [
-      { term: 'explainable ai (xai)', weight: 0.168 },
-      { term: 'deep neural networks', weight: 0.149 },
-      { term: 'model steering', weight: 0.118 },
-      { term: 'latent embeddings', weight: 0.106 },
-      { term: 'transformer attention', weight: 0.095 },
-      { term: 'feature attribution', weight: 0.084 },
-      { term: 'interactive labeling', weight: 0.072 },
-      { term: 'model debugging', weight: 0.065 },
+      'Clusters around opening black-box neural networks, auditing model predictions, anomaly detection, and interactive AI steering.',
+    vocab: [
+      ['explainable ai', 4.5],
+      ['xai', 4.2],
+      ['machine learning', 4.0],
+      ['deep learning', 4.0],
+      ['neural network', 4.0],
+      ['neural networks', 4.0],
+      ['large language model', 4.2],
+      ['llm', 4.0],
+      ['llms', 4.0],
+      ['multimodal model', 3.8],
+      ['transformer', 3.4],
+      ['attention mechanism', 3.4],
+      ['reinforcement learning', 3.8],
+      ['federated learning', 3.8],
+      ['graph neural network', 4.0],
+      ['gnn', 3.6],
+      ['anomaly detection', 3.6],
+      ['model steering', 3.8],
+      ['model debugging', 3.8],
+      ['classifier', 3.0],
+      ['classification', 2.8],
+      ['training', 2.4],
+      ['inference', 2.4],
+      ['prediction', 2.4],
+      ['predictions', 2.4],
+      ['visual analytics', 2.8],
+      ['interpretable', 3.0],
+      ['interpretability', 3.4],
+      ['explainability', 3.6],
+      ['explain', 2.2],
+      ['fairness', 3.0],
+      ['bias', 2.2],
+      ['robustness', 2.8],
+      ['adversarial', 3.2],
+      ['saliency', 2.6],
+      ['ai', 2.6],
+      ['decision tree', 2.8],
+      ['random forest', 3.0],
+      ['ensemble', 2.4],
+      ['generative', 3.0],
+      ['diffusion', 2.8],
     ],
-    peakYear: 2024,
-    growthRate: 48.6,
+    seedKeywords: [
+      { term: 'explainable ai', weight: 0.22 },
+      { term: 'machine learning', weight: 0.19 },
+      { term: 'deep learning', weight: 0.16 },
+      { term: 'neural network', weight: 0.14 },
+      { term: 'interpretability', weight: 0.11 },
+      { term: 'anomaly detection', weight: 0.08 },
+      { term: 'large language model', weight: 0.06 },
+      { term: 'model steering', weight: 0.04 },
+    ],
+    conferencePrior: { 'IEEE VAST': 0.5 },
   },
   {
     id: 'topic-3',
     name: 'High-Dimensional & Multivariate Data',
     shortName: 'High-Dimensional Data',
-    color: '#D97706', // Amber
+    color: '#D9822B',
     description:
       'Explores techniques for summarizing datasets with dozens or hundreds of variables into readable 2D visual patterns.',
     keywordGroupingSummary:
-      'These terms connect dimensionality reduction (t-SNE, UMAP) with multi-axis charts for discovering hidden clusters across many variables.',
-    topKeywords: [
-      { term: 'dimensionality reduction', weight: 0.161 },
-      { term: 't-sne projection', weight: 0.137 },
-      { term: 'umap embedding', weight: 0.122 },
-      { term: 'parallel coordinates', weight: 0.109 },
-      { term: 'subspace clustering', weight: 0.096 },
-      { term: 'scatterplot matrices', weight: 0.082 },
-      { term: 'cluster separation', weight: 0.074 },
-      { term: 'multivariate comparison', weight: 0.063 },
+      'Connects dimensionality reduction (t-SNE, UMAP, PCA) with parallel coordinates, scatterplots, and multi-attribute tables.',
+    vocab: [
+      ['dimensionality reduction', 4.5],
+      ['high-dimensional', 4.2],
+      ['high dimensional', 4.2],
+      ['multidimensional', 3.8],
+      ['multivariate', 3.8],
+      ['parallel coordinates', 4.2],
+      ['scatterplot', 3.6],
+      ['scatterplots', 3.6],
+      ['scatter plot', 3.6],
+      ['t-sne', 4.2],
+      ['tsne', 4.2],
+      ['umap', 4.2],
+      ['pca', 3.6],
+      ['principal component', 3.8],
+      ['mds', 3.4],
+      ['projection', 3.2],
+      ['projections', 3.2],
+      ['embedding', 3.0],
+      ['embeddings', 3.0],
+      ['latent space', 3.6],
+      ['subspace', 3.6],
+      ['cluster', 2.6],
+      ['clustering', 2.8],
+      ['clusters', 2.6],
+      ['correlation', 2.6],
+      ['attribute', 2.2],
+      ['attributes', 2.2],
+      ['tabular', 3.0],
+      ['table', 2.4],
+      ['splom', 3.8],
+      ['glyph', 2.4],
+      ['glyphs', 2.4],
+      ['heatmap', 2.8],
+      ['bicluster', 3.4],
+      ['time series', 2.6],
+      ['time-series', 2.6],
     ],
-    peakYear: 2019,
-    growthRate: 14.2,
+    seedKeywords: [
+      { term: 'dimensionality reduction', weight: 0.21 },
+      { term: 'high-dimensional data', weight: 0.18 },
+      { term: 'parallel coordinates', weight: 0.15 },
+      { term: 'scatterplot', weight: 0.14 },
+      { term: 'projection', weight: 0.12 },
+      { term: 'clustering', weight: 0.08 },
+      { term: 'multivariate', weight: 0.07 },
+      { term: 'embedding', weight: 0.05 },
+    ],
+    conferencePrior: { 'IEEE InfoVis': 0.15, 'IEEE VAST': 0.2 },
   },
   {
     id: 'topic-4',
     name: 'Perception & Color / Evaluation',
     shortName: 'Perception & Evaluation',
-    color: '#E11D48', // Rose
+    color: '#C84B5A',
     description:
       'Studies how human vision and cognition interpret charts, color scales, and uncertainty through empirical user studies.',
     keywordGroupingSummary:
-      'These terms link human-subject experiments and visual perception benchmarks with accessible, distortion-free colormap design.',
-    topKeywords: [
-      { term: 'graphical perception', weight: 0.159 },
-      { term: 'colormap design', weight: 0.138 },
-      { term: 'empirical user study', weight: 0.114 },
-      { term: 'crowdsourced evaluation', weight: 0.102 },
-      { term: 'uncertainty perception', weight: 0.089 },
-      { term: 'visual encoding', weight: 0.078 },
-      { term: 'design methodology', weight: 0.069 },
-      { term: 'color accessibility', weight: 0.058 },
+      'Links human-subject experiments, perceptual accuracy benchmarks, uncertainty communication, and accessible colormap design.',
+    vocab: [
+      ['perception', 4.2],
+      ['perceptual', 4.0],
+      ['graphical perception', 4.5],
+      ['user study', 3.8],
+      ['empirical study', 4.0],
+      ['evaluation', 3.0],
+      ['crowdsourced', 3.6],
+      ['crowdsourcing', 3.6],
+      ['colormap', 4.2],
+      ['colormaps', 4.2],
+      ['color scale', 4.0],
+      ['color', 2.8],
+      ['colour', 2.8],
+      ['cognition', 3.8],
+      ['cognitive', 3.6],
+      ['visual attention', 3.8],
+      ['eye tracking', 4.0],
+      ['eye-tracking', 4.0],
+      ['gaze', 3.4],
+      ['uncertainty', 3.4],
+      ['memorability', 3.8],
+      ['readability', 3.2],
+      ['clutter', 3.0],
+      ['bias', 2.6],
+      ['trust', 2.8],
+      ['literacy', 3.8],
+      ['accessible', 3.4],
+      ['accessibility', 3.6],
+      ['tactile', 3.4],
+      ['blind', 3.2],
+      ['human-subject', 3.8],
+      ['experiment', 2.6],
+      ['psychophysics', 3.8],
+      ['accuracy', 2.2],
+      ['judgment', 3.2],
+      ['judgments', 3.2],
+      ['qualitative', 2.4],
+      ['design study', 2.8],
     ],
-    peakYear: 2021,
-    growthRate: 18.5,
+    seedKeywords: [
+      { term: 'user study', weight: 0.2 },
+      { term: 'perception', weight: 0.19 },
+      { term: 'evaluation', weight: 0.16 },
+      { term: 'colormap', weight: 0.14 },
+      { term: 'uncertainty', weight: 0.11 },
+      { term: 'cognition', weight: 0.08 },
+      { term: 'visualization literacy', weight: 0.07 },
+      { term: 'accessibility', weight: 0.05 },
+    ],
+    conferencePrior: { 'IEEE InfoVis': 0.2 },
   },
   {
     id: 'topic-5',
     name: 'Interaction Techniques & Human-in-the-Loop',
     shortName: 'Interaction & Toolkits',
-    color: '#059669', // Emerald
+    color: '#4E9A51',
     description:
       'Builds declarative visualization toolkits, grammars, and direct-manipulation interactions that support rapid visual exploration.',
     keywordGroupingSummary:
-      'These terms unite foundational visualization grammars (D3, Vega-Lite) with linked brushing, filtering, and automated chart recommendation.',
-    topKeywords: [
-      { term: 'declarative grammar', weight: 0.164 },
-      { term: 'interactive brushing', weight: 0.141 },
-      { term: 'vega-lite & d3', weight: 0.126 },
-      { term: 'linked multi-views', weight: 0.115 },
-      { term: 'chart recommendation', weight: 0.093 },
-      { term: 'direct manipulation', weight: 0.084 },
-      { term: 'authoring systems', weight: 0.076 },
-      { term: 'animated transitions', weight: 0.062 },
+      'Unites declarative visualization grammars, SVG/canvas authoring tools, mixed-initiative interfaces, and responsive interaction.',
+    vocab: [
+      ['declarative', 4.2],
+      ['grammar', 4.0],
+      ['grammar of graphics', 4.5],
+      ['vega-lite', 4.5],
+      ['vega', 3.8],
+      ['d3', 3.8],
+      ['toolkit', 3.8],
+      ['toolkits', 3.8],
+      ['authoring', 4.0],
+      ['visualization by example', 4.2],
+      ['visualization template', 4.0],
+      ['svg', 3.8],
+      ['interaction', 3.2],
+      ['interactive', 2.4],
+      ['direct manipulation', 4.0],
+      ['brushing', 3.6],
+      ['linking', 2.6],
+      ['specification', 3.4],
+      ['sketch', 3.4],
+      ['sketching', 3.4],
+      ['gesture', 3.4],
+      ['touch', 2.8],
+      ['mobile', 2.8],
+      ['immersive', 3.2],
+      ['virtual reality', 3.4],
+      ['augmented reality', 3.4],
+      ['ar/vr', 3.6],
+      ['dashboard', 3.2],
+      ['dashboards', 3.2],
+      ['provenance', 3.2],
+      ['recommender', 3.4],
+      ['recommendation', 3.2],
+      ['chart', 2.4],
+      ['infographic', 3.2],
+      ['infographics', 3.2],
+      ['reusing', 3.0],
+      ['adapting', 2.8],
+      ['animation', 3.2],
+      ['animated', 3.0],
+      ['transition', 2.8],
+      ['transitions', 2.8],
+      ['widget', 2.8],
+      ['widgets', 2.8],
+      ['mixed-initiative', 3.2],
+      ['conversational', 2.8],
+      ['query', 2.2],
+      ['browser', 2.4],
     ],
-    peakYear: 2022,
-    growthRate: 27.9,
+    seedKeywords: [
+      { term: 'interaction', weight: 0.2 },
+      { term: 'authoring tool', weight: 0.17 },
+      { term: 'declarative grammar', weight: 0.16 },
+      { term: 'visualization toolkit', weight: 0.13 },
+      { term: 'direct manipulation', weight: 0.12 },
+      { term: 'brushing & linking', weight: 0.09 },
+      { term: 'animation', weight: 0.07 },
+      { term: 'recommendation', weight: 0.06 },
+    ],
+    conferencePrior: { 'IEEE InfoVis': 0.25 },
   },
   {
     id: 'topic-6',
     name: 'Geospatial & Spatial Data',
     shortName: 'Geospatial & Spatial',
-    color: '#4F46E5', // Indigo
+    color: '#5B8DBE',
     description:
       'Develops map-based visualizations and trajectory views to analyze human mobility, urban infrastructure, and geographic patterns.',
     keywordGroupingSummary:
-      'These terms combine GPS movement trajectories, origin-destination flow maps, and urban sensor analytics across space and time.',
-    topKeywords: [
-      { term: 'movement trajectories', weight: 0.152 },
-      { term: 'origin-destination flows', weight: 0.131 },
-      { term: 'urban mobility', weight: 0.118 },
-      { term: 'choropleth maps', weight: 0.098 },
-      { term: 'space-time cube', weight: 0.089 },
-      { term: 'spatial aggregation', weight: 0.081 },
-      { term: 'cartograms', weight: 0.072 },
-      { term: 'geovisual analytics', weight: 0.064 },
+      'Combines trajectory analytics, origin-destination flows, cartograms, climate/weather maps, and urban spatio-temporal systems.',
+    vocab: [
+      ['geospatial', 4.5],
+      ['geographic', 4.0],
+      ['cartogram', 4.2],
+      ['cartographic', 4.0],
+      ['cartography', 4.0],
+      ['trajectory', 4.2],
+      ['trajectories', 4.2],
+      ['spatiotemporal', 4.2],
+      ['spatio-temporal', 4.2],
+      ['urban', 4.0],
+      ['city', 3.4],
+      ['cities', 3.4],
+      ['mobility', 4.0],
+      ['traffic', 3.8],
+      ['origin-destination', 4.2],
+      ['flow map', 4.2],
+      ['choropleth', 4.2],
+      ['map', 3.2],
+      ['maps', 3.2],
+      ['gis', 3.8],
+      ['gps', 3.8],
+      ['spatial', 2.8],
+      ['movement', 3.2],
+      ['location', 2.6],
+      ['region', 2.2],
+      ['regional', 2.2],
+      ['climate', 2.8],
+      ['weather', 2.8],
+      ['ocean', 2.6],
+      ['terrain', 3.2],
+      ['satellite', 2.8],
+      ['transportation', 3.6],
+      ['route', 3.0],
+      ['routes', 3.0],
     ],
-    peakYear: 2017,
-    growthRate: 9.1,
+    seedKeywords: [
+      { term: 'geospatial', weight: 0.21 },
+      { term: 'spatio-temporal', weight: 0.18 },
+      { term: 'trajectory', weight: 0.16 },
+      { term: 'urban mobility', weight: 0.14 },
+      { term: 'cartography', weight: 0.11 },
+      { term: 'flow map', weight: 0.09 },
+      { term: 'choropleth', weight: 0.06 },
+      { term: 'gis', weight: 0.05 },
+    ],
+    conferencePrior: { 'IEEE VAST': 0.25 },
   },
   {
     id: 'topic-7',
     name: 'Text & Document Analytics',
     shortName: 'Text & Documents',
-    color: '#EA580C', // Orange
+    color: '#B85D3B',
     description:
       'Creates visual summaries and narrative timelines to help people read, search, and synthesize large collections of documents.',
     keywordGroupingSummary:
-      'These terms bring together topic streamgraphs (ThemeRiver), document corpus exploration, and data-driven visual storytelling.',
-    topKeywords: [
-      { term: 'document collections', weight: 0.158 },
-      { term: 'topic evolution streams', weight: 0.144 },
-      { term: 'narrative storytelling', weight: 0.117 },
-      { term: 'text summarization', weight: 0.105 },
-      { term: 'entity co-occurrence', weight: 0.091 },
-      { term: 'discourse timelines', weight: 0.083 },
-      { term: 'keyword extraction', weight: 0.074 },
-      { term: 'investigative sensemaking', weight: 0.066 },
+      'Brings together document topic streams, visual storytelling, event sequences, news corpora, and discourse/sentiment analysis.',
+    vocab: [
+      ['text visualization', 4.5],
+      ['document', 3.6],
+      ['documents', 3.6],
+      ['text', 3.2],
+      ['corpus', 3.6],
+      ['corpora', 3.6],
+      ['topic model', 4.0],
+      ['topic modeling', 4.0],
+      ['lda', 3.8],
+      ['narrative', 4.0],
+      ['storytelling', 4.2],
+      ['data storytelling', 4.4],
+      ['news', 3.0],
+      ['social media', 3.4],
+      ['twitter', 3.4],
+      ['sentiment', 3.8],
+      ['discourse', 3.8],
+      ['conversation', 3.0],
+      ['timeline', 3.2],
+      ['event sequence', 3.8],
+      ['event sequences', 3.8],
+      ['word cloud', 4.0],
+      ['wordcloud', 4.0],
+      ['natural language', 3.8],
+      ['nlp', 3.6],
+      ['literature', 3.0],
+      ['citation', 2.4],
+      ['scholarly', 3.0],
+      ['journalism', 3.6],
+      ['annotation', 2.8],
+      ['annotations', 2.8],
+      ['caption', 3.2],
+      ['captions', 3.2],
+      ['video', 2.6],
+      ['music', 2.6],
+      ['digital humanities', 3.6],
     ],
-    peakYear: 2020,
-    growthRate: 16.8,
+    seedKeywords: [
+      { term: 'text analytics', weight: 0.2 },
+      { term: 'data storytelling', weight: 0.18 },
+      { term: 'document collection', weight: 0.16 },
+      { term: 'narrative', weight: 0.14 },
+      { term: 'event sequence', weight: 0.11 },
+      { term: 'topic modeling', weight: 0.09 },
+      { term: 'sentiment analysis', weight: 0.07 },
+      { term: 'natural language', weight: 0.05 },
+    ],
+    conferencePrior: { 'IEEE VAST': 0.2 },
   },
 ];
 
-// Deterministic generation of 35-year streamgraph data (1990 - 2024) grounded in IEEE VIS history (Vispubdata 3,700+ corpus)
-export function generateStreamData(): YearlyTopicPrevalence[] {
-  const years: YearlyTopicPrevalence[] = [];
-  for (let yr = 1990; yr <= 2024; yr++) {
-    const t = (yr - 1990) / 34; // 0.0 to 1.0
+// Mutable runtime dataset populated either from fetch('/data/vispubdata_1990_2025.json') in the browser
+// or via initializeCorpus() in Node tests. Starts empty with zero synthetic/hardcoded papers.
+export let RAW_PAPERS: RawPaperRecord[] = [];
+export let AUTHORS: Record<string, CorpusAuthorRecord> = {};
+export let VISPUB_YEARLY_TOTALS: Record<number, number> = {};
+export let STREAM_DATA: YearlyTopicPrevalence[] = [];
+export let TOPICS: TopicSummary[] = BASE_TOPICS.map((t) => ({
+  id: t.id,
+  name: t.name,
+  shortName: t.shortName,
+  color: t.color,
+  description: t.description,
+  keywordGroupingSummary: t.keywordGroupingSummary,
+  topKeywords: t.seedKeywords,
+  paperCount: 0,
+  indexedPaperCount: 0,
+  totalCitations: 0,
+  peakYear: 2025,
+  growthRate: 0,
+}));
+export let TOPIC_CORRELATIONS: TopicCorrelationEdge[] = [];
 
-    // Authentic historical curves for each IEEE VIS subfield
-    // Topic 1 (SciVis & Volume) dominated 1990-2008, then stabilized
-    const w1 = 28 * Math.exp(-Math.pow((t - 0.35) / 0.32, 2)) + 10;
-    // Topic 0 (Graph & Network) surged with InfoVis 1998-2016
-    const w0 = 24 * Math.exp(-Math.pow((t - 0.58) / 0.28, 2)) + 7;
-    // Topic 2 (Visual Analytics & ML / XAI) started around VAST 2006 and surged exponentially after 2016
-    const w2 = t < 0.35 ? 3.2 : 5.5 + 42 * Math.pow((t - 0.35) / 0.65, 1.7);
-    // Topic 3 (High-Dimensional Data) grew steadily from 2000 to 2022
-    const w3 = 5 + 18 * Math.exp(-Math.pow((t - 0.75) / 0.30, 2));
-    // Topic 4 (Perception & Color / Evaluation) steady foundational pillar with modern growth
-    const w4 = 6 + 14 * Math.pow(t, 1.15);
-    // Topic 5 (Interaction Techniques & Human-in-the-Loop) rose sharply post-2009 (Protovis/D3/Vega-Lite)
-    const w5 = t < 0.45 ? 3.5 : 4 + 26 * Math.pow((t - 0.42) / 0.58, 1.4);
-    // Topic 6 (Geospatial & Spatial Data) peaked around 2008-2019
-    const w6 = 4 + 16 * Math.exp(-Math.pow((t - 0.68) / 0.26, 2));
-    // Topic 7 (Text & Document Analytics) rose from 2005 onward
-    const w7 = 3 + 15 * Math.pow(Math.max(0, t - 0.25) / 0.75, 1.5);
+const CORPUS_START_YEAR = 1990;
+const CORPUS_END_YEAR = 2025;
+const STOP_WORDS = new Set([
+  'about', 'above', 'across', 'after', 'against', 'among', 'analysis', 'approach', 'based',
+  'between', 'beyond', 'building', 'case', 'charts', 'data', 'design', 'different', 'domain',
+  'effective', 'enable', 'enables', 'evaluate', 'evaluating', 'evaluation', 'existing',
+  'exploration', 'explore', 'exploring', 'framework', 'from', 'however', 'improve', 'improved',
+  'improving', 'information', 'large', 'methods', 'multiple', 'novel', 'other', 'overview',
+  'paper', 'patterns', 'present', 'presents', 'propose', 'proposed', 'provide', 'provides',
+  'recent', 'representation', 'results', 'several', 'show', 'shows', 'single', 'small',
+  'support', 'supports', 'system', 'systems', 'tasks', 'technique', 'techniques', 'their',
+  'these', 'this', 'three', 'through', 'tools', 'understanding', 'user', 'users', 'using',
+  'various', 'visual', 'visualization', 'visualizations', 'visualize', 'visualizing',
+  'while', 'with', 'within', 'without', 'workflow', 'study',
+]);
 
-    const raw: Record<string, number> = {
-      'topic-0': w0,
-      'topic-1': w1,
-      'topic-2': w2,
-      'topic-3': w3,
-      'topic-4': w4,
-      'topic-5': w5,
-      'topic-6': w6,
-      'topic-7': w7,
-    };
+const GENERIC_FIELD_PHRASES = new Set([
+  'information visualization',
+  'information visualisation',
+  'visual analytics',
+  'data visualization',
+  'data visualisation',
+  'scientific visualization',
+  'scientific visualisation',
+  'visualization',
+  'visualizations',
+  'visualisation',
+  'interactive visualization',
+  'visual analysis',
+  'visual exploration',
+  'exploratory data analysis',
+  'computer graphics',
+]);
 
-    const sum = Object.values(raw).reduce((a, b) => a + b, 0);
-    const totalYearPapers = Math.round(45 + 115 * Math.pow(t, 0.9));
-
-    const values: Record<string, number> = {};
-    const counts: Record<string, number> = {};
-
-    for (const [tid, val] of Object.entries(raw)) {
-      const norm = Number((val / sum).toFixed(4));
-      values[tid] = norm;
-      counts[tid] = Math.max(1, Math.round(norm * totalYearPapers));
-    }
-
-    years.push({ year: yr, values, counts });
-  }
-  return years;
+let onCorpusUpdatedCallback: (() => void) | null = null;
+export function registerCorpusResetListener(cb: () => void): void {
+  onCorpusUpdatedCallback = cb;
 }
 
-export const STREAM_DATA: YearlyTopicPrevalence[] = generateStreamData();
+export function normalizeVispubDoi(rawDoi?: string | null): string {
+  if (!rawDoi) return '';
+  const cleaned = rawDoi.trim().toLowerCase();
+  if (
+    !cleaned ||
+    cleaned === 'na' ||
+    cleaned === 'n/a' ||
+    cleaned === 'null' ||
+    cleaned === 'none' ||
+    cleaned === 'nan' ||
+    cleaned === '-'
+  ) {
+    return '';
+  }
+  // Recover upstream Vispubdata DOI typos missing the leading "1" (e.g., "0.1109/tvcg..." -> "10.1109/tvcg...")
+  return cleaned.replace(/^0\.1109\//, '10.1109/');
+}
 
-// Dynamically compute exact 1990-2024 corpus paperCount (sum of STREAM_DATA) AND indexedPaperCount (RAW_PAPERS) per topic
-export const TOPICS: TopicSummary[] = BASE_TOPICS.map((t) => {
-  const topicPapers = RAW_PAPERS.filter((p) => p.primaryTopicId === t.id);
-  const indexedPaperCount = topicPapers.length;
-  const corpusPaperCount = STREAM_DATA.reduce(
-    (sum, yrRow) => sum + (yrRow.counts[t.id] ?? 0),
-    0
-  );
-  const paperCount = Math.max(indexedPaperCount, corpusPaperCount);
-  const landmarkCitations = topicPapers.reduce((acc, p) => acc + p.citationCount, 0);
-  const remainingCorpusPapers = Math.max(0, paperCount - indexedPaperCount);
-  const totalCitations = landmarkCitations + remainingCorpusPapers * 38;
-  return {
-    ...t,
-    paperCount,
-    indexedPaperCount,
-    totalCitations,
-  };
-});
+export function cleanAuthorDisplayName(rawName: string): string {
+  if (!rawName) return 'Anonymous VIS Researcher';
+  const cleaned = rawName.trim().replace(/\s+\d{3,4}$/, '').trim();
+  return cleaned || rawName.trim();
+}
 
-const BASE_TOPIC_CORRELATIONS: Array<Omit<TopicCorrelationEdge, 'coOccurrenceCount'>> = [
-  { sourceTopicId: 'topic-2', targetTopicId: 'topic-3', correlation: 0.68 },
-  { sourceTopicId: 'topic-3', targetTopicId: 'topic-2', correlation: 0.68 },
-  { sourceTopicId: 'topic-4', targetTopicId: 'topic-5', correlation: 0.61 },
-  { sourceTopicId: 'topic-5', targetTopicId: 'topic-4', correlation: 0.61 },
-  { sourceTopicId: 'topic-2', targetTopicId: 'topic-7', correlation: 0.57 },
-  { sourceTopicId: 'topic-7', targetTopicId: 'topic-2', correlation: 0.57 },
-  { sourceTopicId: 'topic-5', targetTopicId: 'topic-7', correlation: 0.54 },
-  { sourceTopicId: 'topic-7', targetTopicId: 'topic-5', correlation: 0.54 },
-  { sourceTopicId: 'topic-0', targetTopicId: 'topic-6', correlation: 0.49 },
-  { sourceTopicId: 'topic-6', targetTopicId: 'topic-0', correlation: 0.49 },
-  { sourceTopicId: 'topic-0', targetTopicId: 'topic-2', correlation: 0.44 },
-  { sourceTopicId: 'topic-2', targetTopicId: 'topic-0', correlation: 0.44 },
-  { sourceTopicId: 'topic-2', targetTopicId: 'topic-5', correlation: 0.42 },
-  { sourceTopicId: 'topic-5', targetTopicId: 'topic-2', correlation: 0.42 },
-  { sourceTopicId: 'topic-0', targetTopicId: 'topic-3', correlation: 0.39 },
-  { sourceTopicId: 'topic-3', targetTopicId: 'topic-0', correlation: 0.39 },
-  { sourceTopicId: 'topic-3', targetTopicId: 'topic-6', correlation: 0.35 },
-  { sourceTopicId: 'topic-6', targetTopicId: 'topic-3', correlation: 0.35 },
-  { sourceTopicId: 'topic-1', targetTopicId: 'topic-4', correlation: 0.31 },
-  { sourceTopicId: 'topic-4', targetTopicId: 'topic-1', correlation: 0.31 },
-  { sourceTopicId: 'topic-1', targetTopicId: 'topic-6', correlation: 0.33 },
-  { sourceTopicId: 'topic-6', targetTopicId: 'topic-1', correlation: 0.33 },
-  { sourceTopicId: 'topic-0', targetTopicId: 'topic-5', correlation: 0.29 },
-  { sourceTopicId: 'topic-5', targetTopicId: 'topic-0', correlation: 0.29 },
-  { sourceTopicId: 'topic-4', targetTopicId: 'topic-7', correlation: 0.26 },
-  { sourceTopicId: 'topic-7', targetTopicId: 'topic-4', correlation: 0.26 },
-  { sourceTopicId: 'topic-3', targetTopicId: 'topic-4', correlation: 0.28 },
-  { sourceTopicId: 'topic-4', targetTopicId: 'topic-3', correlation: 0.28 },
-];
+export function slugifyAuthorName(rawName: string): string {
+  const ascii = (rawName || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const slug = ascii.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || 'anonymous-vis-researcher';
+}
 
-export const TOPIC_CORRELATIONS: TopicCorrelationEdge[] = BASE_TOPIC_CORRELATIONS.map((edge) => {
-  const sourceTopic = TOPICS.find((t) => t.id === edge.sourceTopicId);
-  const targetTopic = TOPICS.find((t) => t.id === edge.targetTopicId);
-  const minSubfieldCorpus = Math.min(
-    sourceTopic?.paperCount ?? 300,
-    targetTopic?.paperCount ?? 300
-  );
-  const corpusSharedEstimate = Math.round(minSubfieldCorpus * edge.correlation * 0.42);
-  return {
-    ...edge,
-    coOccurrenceCount: Math.max(12, corpusSharedEstimate),
-  };
-});
+export function normalizeConferenceToVenue(conference: string): RawPaperRecord['venue'] {
+  const c = (conference || '').trim().toLowerCase();
+  if (c === 'infovis' || c.includes('infovis')) return 'IEEE InfoVis';
+  if (c === 'vast' || c.includes('vast')) return 'IEEE VAST';
+  if (c === 'scivis' || c.includes('scivis')) return 'IEEE SciVis';
+  return 'IEEE VIS';
+}
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Precompile whole-word/phrase RegExps once for fast classification across 4,008 real papers
+const COMPILED_TOPIC_VOCAB = BASE_TOPICS.map((t) => ({
+  id: t.id,
+  patterns: t.vocab.map(([term, weight]) => ({
+    regex: new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(term)}(?=$|[^a-z0-9])`, 'g'),
+    weight,
+  })),
+  conferencePrior: t.conferencePrior,
+}));
+
+/**
+ * Classifies a real Vispubdata paper into the 8 canonical IEEE VIS research subfields
+ * using weighted multi-field evidence: 2.2x AuthorKeywords + 1.6x Title + 0.75x Abstract + Venue prior,
+ * smoothed with Dirichlet prior alpha = 0.125.
+ * When a paper has zero vocabulary matches and uniform baseline scores, breaks ties deterministically
+ * via venue/era/paperType metadata instead of defaulting blindly to BASE_TOPICS[0] (Graph & Network).
+ */
+export function classifyRealPaperTopics(params: {
+  title: string;
+  abstract: string;
+  keywords: string[];
+  venue: RawPaperRecord['venue'];
+  year?: number;
+  paperType?: string;
+}): { primaryTopicId: string; topicScores: Record<string, number> } {
+  const titleLower = (params.title || '').toLowerCase();
+  const abstractLower = (params.abstract || '').toLowerCase();
+  const kwLower = (params.keywords || []).join(' , ').toLowerCase();
+
+  const rawScores: Record<string, number> = {};
+  let total = 0;
+
+  for (const topic of COMPILED_TOPIC_VOCAB) {
+    let score = 0.125 + (topic.conferencePrior[params.venue] ?? 0);
+
+    for (const { regex, weight } of topic.patterns) {
+      if (kwLower) {
+        regex.lastIndex = 0;
+        const mKw = kwLower.match(regex);
+        if (mKw) score += Math.min(2, mKw.length) * weight * 2.2;
+      }
+      if (titleLower) {
+        regex.lastIndex = 0;
+        const mTitle = titleLower.match(regex);
+        if (mTitle) score += Math.min(2, mTitle.length) * weight * 1.6;
+      }
+      if (abstractLower) {
+        regex.lastIndex = 0;
+        const mAbs = abstractLower.match(regex);
+        if (mAbs) score += Math.min(3, mAbs.length) * weight * 0.75;
+      }
+    }
+
+    rawScores[topic.id] = score;
+    total += score;
+  }
+
+  // Detect uniform zero-signal tie across all 8 subfields so Graph & Network (topic-0)
+  // never silently swallows unmatched papers.
+  const scoreValues = Object.values(rawScores);
+  const maxRaw = Math.max(...scoreValues);
+  const minRaw = Math.min(...scoreValues);
+  if (maxRaw - minRaw <= 1e-6) {
+    let metadataTargetTopicId = 'topic-5';
+    if (params.venue === 'IEEE SciVis') {
+      metadataTargetTopicId = 'topic-1';
+    } else if (params.venue === 'IEEE VAST') {
+      metadataTargetTopicId = 'topic-2';
+    } else if (params.venue === 'IEEE InfoVis') {
+      metadataTargetTopicId = 'topic-5';
+    } else if ((params.paperType || '').toUpperCase() === 'J') {
+      // General VIS journal papers without domain keywords typically concern pedagogy/theory/design evaluation
+      metadataTargetTopicId = 'topic-4';
+    } else {
+      metadataTargetTopicId = 'topic-5';
+    }
+    rawScores[metadataTargetTopicId] = (rawScores[metadataTargetTopicId] ?? 0.125) + 0.12;
+    total += 0.12;
+  }
+
+  const denom = total || 1;
+  const topicScores: Record<string, number> = {};
+  let primaryTopicId = BASE_TOPICS[0].id;
+  let bestScore = -1;
+
+  for (const topic of BASE_TOPICS) {
+    const prob = Number(((rawScores[topic.id] ?? 0.125) / denom).toFixed(4));
+    topicScores[topic.id] = prob;
+    if (prob > bestScore) {
+      bestScore = prob;
+      primaryTopicId = topic.id;
+    }
+  }
+
+  return { primaryTopicId, topicScores };
+}
+
+function computeAuthorHIndex(citationCounts: number[]): number {
+  const sorted = [...citationCounts].sort((a, b) => b - a);
+  let h = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    if (sorted[i] >= i + 1) h = i + 1;
+    else break;
+  }
+  return h;
+}
+
+export function generateStreamData(papers: RawPaperRecord[] = RAW_PAPERS): {
+  streamData: YearlyTopicPrevalence[];
+  yearlyTotals: Record<number, number>;
+} {
+  if (papers.length === 0) {
+    return { streamData: [], yearlyTotals: {} };
+  }
+
+  const minYear = Math.min(...papers.map((p) => p.year), CORPUS_START_YEAR);
+  const maxYear = Math.max(...papers.map((p) => p.year), CORPUS_END_YEAR);
+  const topicIds = BASE_TOPICS.map((t) => t.id);
+
+  const byYearCount = new Map<number, Record<string, number>>();
+  const byYearWeight = new Map<number, Record<string, number>>();
+  const yearlyTotals: Record<number, number> = {};
+
+  for (let yr = minYear; yr <= maxYear; yr++) {
+    const cInit: Record<string, number> = {};
+    const wInit: Record<string, number> = {};
+    for (const tid of topicIds) {
+      cInit[tid] = 0;
+      wInit[tid] = 0;
+    }
+    byYearCount.set(yr, cInit);
+    byYearWeight.set(yr, wInit);
+    yearlyTotals[yr] = 0;
+  }
+
+  for (const p of papers) {
+    const cMap = byYearCount.get(p.year);
+    const wMap = byYearWeight.get(p.year);
+    if (!cMap || !wMap) continue;
+    yearlyTotals[p.year] = (yearlyTotals[p.year] ?? 0) + 1;
+    cMap[p.primaryTopicId] = (cMap[p.primaryTopicId] ?? 0) + 1;
+    let scoreSum = 0;
+    for (const tid of topicIds) {
+      const s = p.topicScores[tid] ?? 0;
+      wMap[tid] = (wMap[tid] ?? 0) + s;
+      scoreSum += s;
+    }
+    if (scoreSum <= 0) {
+      wMap[p.primaryTopicId] = (wMap[p.primaryTopicId] ?? 0) + 1;
+    }
+  }
+
+  const streamData: YearlyTopicPrevalence[] = [];
+  for (let yr = minYear; yr <= maxYear; yr++) {
+    const counts = byYearCount.get(yr)!;
+    const weights = byYearWeight.get(yr)!;
+    const totalWeight = topicIds.reduce((sum, tid) => sum + (weights[tid] ?? 0), 0) || 1;
+    const values: Record<string, number> = {};
+    let runningShare = 0;
+    topicIds.forEach((tid, idx) => {
+      const norm =
+        idx === topicIds.length - 1
+          ? Number(Math.max(0, 1 - runningShare).toFixed(4))
+          : Number(((weights[tid] ?? 0) / totalWeight).toFixed(4));
+      runningShare += norm;
+      values[tid] = norm;
+    });
+    streamData.push({ year: yr, values, counts });
+  }
+
+  return { streamData, yearlyTotals };
+}
+
+function computeTopicTopKeywords(
+  topicPapers: RawPaperRecord[],
+  fallback: Array<{ term: string; weight: number }>
+): Array<{ term: string; weight: number }> {
+  const termCounts = new Map<string, number>();
+
+  for (const p of topicPapers) {
+    const seenInPaper = new Set<string>();
+    for (const rawKw of p.keywords) {
+      const cleanKw = rawKw.trim().toLowerCase();
+      if (
+        cleanKw.length >= 3 &&
+        !STOP_WORDS.has(cleanKw) &&
+        !GENERIC_FIELD_PHRASES.has(cleanKw) &&
+        !seenInPaper.has(cleanKw)
+      ) {
+        seenInPaper.add(cleanKw);
+        termCounts.set(cleanKw, (termCounts.get(cleanKw) ?? 0) + 3);
+      }
+    }
+
+    const titleTokens = (p.title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
+
+    for (let i = 0; i < titleTokens.length - 1; i++) {
+      const bigram = `${titleTokens[i]} ${titleTokens[i + 1]}`;
+      if (!GENERIC_FIELD_PHRASES.has(bigram) && !seenInPaper.has(bigram)) {
+        seenInPaper.add(bigram);
+        termCounts.set(bigram, (termCounts.get(bigram) ?? 0) + 1);
+      }
+    }
+  }
+
+  const top = Array.from(termCounts.entries())
+    .filter(([, count]) => count >= 6)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  if (top.length < 5) return fallback;
+
+  const weightSum = top.reduce((sum, [, c]) => sum + c, 0) || 1;
+  return top.map(([term, c]) => ({
+    term,
+    weight: Number((c / weightSum).toFixed(3)),
+  }));
+}
+
+/**
+ * Hydrates all dataset exports (RAW_PAPERS, AUTHORS, TOPICS, STREAM_DATA, TOPIC_CORRELATIONS,
+ * VISPUB_YEARLY_TOTALS) directly from the real JSON array with zero synthetic records.
+ */
+export function initializeCorpus(jsonRecords: VispubJsonRecord[]): void {
+  const seenIds = new Map<string, number>();
+  const rawPapers: RawPaperRecord[] = [];
+  const authorAccMap = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      rawName: string;
+      affiliationsByYear: Array<{ year: number; aff: string }>;
+      paperCitations: number[];
+      years: number[];
+      topicWeights: Record<string, number>;
+    }
+  >();
+
+  for (let idx = 0; idx < jsonRecords.length; idx++) {
+    const item = jsonRecords[idx];
+    const normalizedDoi = normalizeVispubDoi(item.doi);
+    const baseId = normalizedDoi || `vis-${item.year}-${idx}`;
+    const dupCount = seenIds.get(baseId) ?? -1;
+    seenIds.set(baseId, dupCount + 1);
+    const id = dupCount >= 0 ? `${baseId}#${dupCount + 1}` : baseId;
+
+    const year = Number.isFinite(item.year) ? item.year : 2015;
+    const title = (item.title || '').trim() || `Untitled IEEE VIS Paper (${year})`;
+    const abstract = (item.abstract || '').trim();
+    const keywords = Array.isArray(item.keywords)
+      ? item.keywords.map((k) => k.trim()).filter(Boolean)
+      : [];
+    const venue = normalizeConferenceToVenue(item.conference);
+
+    const { primaryTopicId, topicScores } = classifyRealPaperTopics({
+      title,
+      abstract,
+      keywords,
+      venue,
+      year,
+      paperType: item.paperType,
+    });
+
+    const rawAuthors = Array.isArray(item.authors)
+      ? item.authors.map((a) => a.trim()).filter(Boolean)
+      : [];
+    const rawAffs = Array.isArray(item.affiliations) ? item.affiliations : [];
+    const fallbackAff =
+      rawAffs.find((a) => a && a.trim())?.trim() || 'IEEE VIS Research Community';
+
+    const authorIds: string[] = [];
+    const citations = Math.max(
+      0,
+      Number(
+        item.citations ??
+          item.citationCountCrossRef ??
+          item.aminerCitationCount ??
+          0
+      ) || 0
+    );
+
+    rawAuthors.forEach((rawAuthorName, aIdx) => {
+      const aid = slugifyAuthorName(rawAuthorName);
+      authorIds.push(aid);
+
+      const aff = (rawAffs[aIdx] || '').trim() || fallbackAff;
+      let acc = authorAccMap.get(aid);
+      if (!acc) {
+        acc = {
+          id: aid,
+          name: cleanAuthorDisplayName(rawAuthorName),
+          rawName: rawAuthorName,
+          affiliationsByYear: [],
+          paperCitations: [],
+          years: [],
+          topicWeights: {},
+        };
+        authorAccMap.set(aid, acc);
+      }
+      if (aff !== 'IEEE VIS Research Community') {
+        acc.affiliationsByYear.push({ year, aff });
+      }
+      acc.paperCitations.push(citations);
+      acc.years.push(year);
+      for (const [tid, score] of Object.entries(topicScores)) {
+        acc.topicWeights[tid] = (acc.topicWeights[tid] ?? 0) + score;
+      }
+    });
+
+    const references = Array.isArray(item.internalReferences)
+      ? Array.from(
+          new Set(
+            item.internalReferences
+              .map((r) => normalizeVispubDoi(r))
+              .filter((r) => Boolean(r) && r !== normalizedDoi)
+          )
+        )
+      : [];
+
+    rawPapers.push({
+      id,
+      title,
+      year,
+      venue,
+      doi: normalizedDoi || id,
+      url: item.link || (normalizedDoi ? `https://doi.org/${normalizedDoi}` : undefined),
+      paperType: item.paperType,
+      award: item.award ?? null,
+      downloadsXplore: item.downloadsXplore ?? 0,
+      citationCount: citations,
+      primaryTopicId,
+      topicScores,
+      authorIds,
+      keywords,
+      abstract,
+      references,
+    });
+  }
+
+  // Build real AUTHORS registry directly from the extracted author publications
+  const authorsRegistry: Record<string, CorpusAuthorRecord> = {};
+  for (const acc of authorAccMap.values()) {
+    const sortedAffs = [...acc.affiliationsByYear].sort((a, b) => b.year - a.year);
+    const primaryAffiliation = sortedAffs[0]?.aff || 'IEEE VIS Research Community';
+    const domTopic =
+      Object.entries(acc.topicWeights).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+      BASE_TOPICS[0].id;
+    const totalCitations = acc.paperCitations.reduce((sum, c) => sum + c, 0);
+
+    authorsRegistry[acc.id] = {
+      id: acc.id,
+      name: acc.name,
+      rawName: acc.rawName,
+      affiliation: primaryAffiliation,
+      hIndex: computeAuthorHIndex(acc.paperCitations),
+      visPaperCount: acc.paperCitations.length,
+      visCitations: totalCitations,
+      primaryTopicId: domTopic,
+      activeStartYear: Math.min(...acc.years),
+      activeEndYear: Math.max(...acc.years),
+    };
+  }
+
+  // Build STREAM_DATA and VISPUB_YEARLY_TOTALS across all 4,008 real papers
+  const { streamData, yearlyTotals } = generateStreamData(rawPapers);
+
+  // Build TOPICS metrics + empirical topKeywords directly from all real papers
+  const topicsComputed: TopicSummary[] = BASE_TOPICS.map((t) => {
+    const topicPapers = rawPapers.filter((p) => p.primaryTopicId === t.id);
+    const paperCount = topicPapers.length;
+    const totalCitations = topicPapers.reduce((acc, p) => acc + p.citationCount, 0);
+
+    let peakYear = 2025;
+    let maxYrCount = -1;
+    for (const row of streamData) {
+      const cnt = row.counts[t.id] ?? 0;
+      if (cnt >= maxYrCount) {
+        maxYrCount = cnt;
+        peakYear = row.year;
+      }
+    }
+
+    const recent5 = streamData.slice(-5).reduce((s, r) => s + (r.counts[t.id] ?? 0), 0);
+    const prev5 = Math.max(
+      1,
+      streamData.slice(-10, -5).reduce((s, r) => s + (r.counts[t.id] ?? 0), 0)
+    );
+    const growthRate = Number((((recent5 - prev5) / prev5) * 100).toFixed(1));
+
+    return {
+      id: t.id,
+      name: t.name,
+      shortName: t.shortName,
+      color: t.color,
+      description: t.description,
+      keywordGroupingSummary: t.keywordGroupingSummary,
+      topKeywords: computeTopicTopKeywords(topicPapers, t.seedKeywords),
+      paperCount,
+      indexedPaperCount: paperCount,
+      totalCitations,
+      peakYear,
+      growthRate,
+    };
+  });
+
+  // Build TOPIC_CORRELATIONS across all 4,008 real paper topic vectors (56 directed / 28 unique pairs)
+  const topicIds = topicsComputed.map((t) => t.id);
+  const norms = new Map<string, number>();
+  for (const tid of topicIds) {
+    let sq = 0;
+    for (const p of rawPapers) {
+      const v = p.topicScores[tid] ?? 0;
+      sq += v * v;
+    }
+    norms.set(tid, Math.sqrt(sq) || 1);
+  }
+
+  const correlationsComputed: TopicCorrelationEdge[] = [];
+  for (let i = 0; i < topicIds.length; i++) {
+    for (let j = 0; j < topicIds.length; j++) {
+      if (i === j) continue;
+      const sId = topicIds[i];
+      const tId = topicIds[j];
+      let dot = 0;
+      let coOcc = 0;
+      for (const p of rawPapers) {
+        const sv = p.topicScores[sId] ?? 0;
+        const tv = p.topicScores[tId] ?? 0;
+        dot += sv * tv;
+        if (sv >= 0.12 && tv >= 0.12) coOcc += 1;
+      }
+      const cosine = dot / ((norms.get(sId) ?? 1) * (norms.get(tId) ?? 1));
+      const corr = Number(Math.max(0.05, Math.min(0.88, cosine * 1.45)).toFixed(3));
+      correlationsComputed.push({
+        sourceTopicId: sId,
+        targetTopicId: tId,
+        correlation: corr,
+        coOccurrenceCount: coOcc,
+      });
+    }
+  }
+
+  RAW_PAPERS = rawPapers;
+  AUTHORS = authorsRegistry;
+  VISPUB_YEARLY_TOTALS = yearlyTotals;
+  STREAM_DATA = streamData;
+  TOPICS = topicsComputed;
+  TOPIC_CORRELATIONS = correlationsComputed;
+
+  if (onCorpusUpdatedCallback) {
+    onCorpusUpdatedCallback();
+  }
+}
+
+let pendingFetchPromise: Promise<void> | null = null;
+
+/**
+ * Fetches /data/vispubdata_1990_2025.json once at browser startup and hydrates the entire corpus.
+ */
+export async function loadVispubCorpusFromPublic(): Promise<void> {
+  if (RAW_PAPERS.length > 0) return;
+  if (pendingFetchPromise) return pendingFetchPromise;
+
+  const baseUrl =
+    (typeof import.meta !== 'undefined' &&
+      (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL) ||
+    '/';
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const url = `${normalizedBase}data/vispubdata_1990_2025.json`;
+
+  pendingFetchPromise = (async () => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load IEEE VIS dataset (${response.status} ${response.statusText}) from ${url}`
+      );
+    }
+    const payload = (await response.json()) as VispubJsonRecord[];
+    if (!Array.isArray(payload) || payload.length === 0) {
+      throw new Error(`Invalid or empty IEEE VIS dataset received from ${url}`);
+    }
+    initializeCorpus(payload);
+  })();
+
+  try {
+    await pendingFetchPromise;
+  } catch (err) {
+    pendingFetchPromise = null;
+    throw err;
+  }
+}
