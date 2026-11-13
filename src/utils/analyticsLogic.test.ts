@@ -479,13 +479,25 @@ test('Time-Aligned Topic Evolution & Citation Lineage scopes cleanly, computes n
     { scope: 60, roleFilter: 'all' }
   );
 
-  assert.equal(defaultTop60.visibleNodes.length, 60);
+  assert.ok(defaultTop60.visibleNodes.length >= 60);
   assert.equal(defaultTop60.allTopicCount, topic0.papers.length);
   assert.ok(defaultTop60.visibleNodes.every((n) => !n.isCrossTopic && n.primaryTopicId === 'topic-0'));
-  assert.ok(defaultTop60.roleCounts.foundations >= 15);
-  assert.ok(defaultTop60.roleCounts.bridges >= 15);
+  assert.ok(defaultTop60.roleCounts.pushers >= 7, 'Should detect Crucial Pushers across topic eras');
   assert.ok(defaultTop60.roleCounts.recent >= 10);
   assert.ok(defaultTop60.visibleNodes.some((n) => n.isAwardWinner));
+  assert.ok(defaultTop60.backboneLinks.length > 0, 'Should produce evolutionary Citation Backbone links');
+
+  // Crucial Pushers lens spans multiple eras across the topic history
+  const pushersOnly = buildTopicEvolutionGraph(
+    topic0.citationNetwork.nodes,
+    topic0.citationNetwork.links,
+    'topic-0',
+    { scope: 60, roleFilter: 'pushers' }
+  );
+  assert.equal(pushersOnly.visibleNodes.length, defaultTop60.roleCounts.pushers);
+  assert.ok(pushersOnly.visibleNodes.every((n) => n.isCrucialPusher));
+  const distinctEras = new Set(pushersOnly.visibleNodes.map((n) => n.pusherEra));
+  assert.ok(distinctEras.size >= 5, `Crucial Pushers should span multiple eras, got ${distinctEras.size}`);
 
   // Recent Frontiers filter strictly returns 2023-2025 papers
   const recentOnly = buildTopicEvolutionGraph(
@@ -536,11 +548,26 @@ test('Time-Aligned Topic Evolution & Citation Lineage scopes cleanly, computes n
     minRelevance: defaultTop60.minTopicRelevance,
     maxRelevance: defaultTop60.maxTopicRelevance,
   });
-  assert.equal(posCitations.length, 60);
-  assert.equal(posRelevance.length, 60);
+  assert.equal(posCitations.length, defaultTop60.visibleNodes.length);
+  assert.equal(posRelevance.length, defaultTop60.visibleNodes.length);
   const older = posCitations.find((p) => p.year <= 2005);
   const newer = posCitations.find((p) => p.year >= 2018);
   assert.ok(older && newer && older.x < newer.x);
+
+  // Zoomed Recent Frontiers (2023-2025) spreads same-year nodes horizontally across year columns
+  const recentMaxCit = Math.max(10, ...recentOnly.visibleNodes.map((n) => n.citationCount));
+  const posRecent = computeTopicEvolutionPositions(recentOnly.visibleNodes, 'citations', {
+    innerWidth: 1000,
+    innerHeight: 360,
+    minYear: 2022.55,
+    maxYear: 2025.45,
+    maxCitations: recentMaxCit,
+    minRelevance: recentOnly.minTopicRelevance,
+    maxRelevance: recentOnly.maxTopicRelevance,
+    spreadWithinYear: true,
+  });
+  const xs2024 = new Set(posRecent.filter((p) => p.year === 2024).map((p) => Math.round(p.x)));
+  assert.ok(xs2024.size > 1, 'Zoomed Recent Frontiers should fan out same-year nodes horizontally');
 });
 
 test('computeTopicMomentum computes 3-yr smoothed trajectories, 5-yr shifts, peaks, inflection years, and lifecycle regimes', () => {

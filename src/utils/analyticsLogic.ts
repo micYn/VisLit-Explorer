@@ -1384,7 +1384,7 @@ export function listAllPapers(sortBy: PaperSortKey = 'citations'): PaperSummary[
  * TIME-ALIGNED TOPIC EVOLUTION & CITATION LINEAGE HELPERS
  * ========================================================================== */
 
-export type TopicEvolutionRoleFilter = 'all' | 'foundations' | 'bridges' | 'recent';
+export type TopicEvolutionRoleFilter = 'all' | 'pushers' | 'recent';
 export type TopicEvolutionScope = 30 | 60 | 150 | 'all';
 export type TopicEvolutionYAxis = 'citations' | 'relevance';
 
@@ -1393,11 +1393,19 @@ export interface TopicEvolutionNode extends CitationNode {
   outDegreeInTopic: number;
   totalDegreeInTopic: number;
   influenceScore: number;
-  isFoundation: boolean;
-  isSurveyOrBridge: boolean;
+  pusherScore: number;
+  pusherEra: string;
+  isCrucialPusher: boolean;
   isRecentFrontier: boolean;
   isAwardWinner: boolean;
   awardLabel: string | null;
+}
+
+export interface TopicBackboneLink {
+  source: string;
+  target: string;
+  isPusherChain: boolean;
+  weight: number;
 }
 
 export interface TopicEvolutionOptions {
@@ -1410,6 +1418,7 @@ export interface TopicEvolutionOptions {
 export interface TopicEvolutionGraphResult {
   visibleNodes: TopicEvolutionNode[];
   visibleLinks: CitationLink[];
+  backboneLinks: TopicBackboneLink[];
   allTopicNodes: TopicEvolutionNode[];
   allTopicLinks: CitationLink[];
   allTopicCount: number;
@@ -1418,8 +1427,7 @@ export interface TopicEvolutionGraphResult {
   maxTopicRelevance: number;
   roleCounts: {
     all: number;
-    foundations: number;
-    bridges: number;
+    pushers: number;
     recent: number;
   };
   searchMatchIds: Set<string>;
@@ -1460,10 +1468,20 @@ export function formatPaperAwardLabel(award?: string | null): string | null {
   return AWARD_LABELS[trimmed] || trimmed;
 }
 
+function getTopicEraLabel(year: number): string {
+  if (year <= 1994) return '1990–1994';
+  if (year <= 1999) return '1995–1999';
+  if (year <= 2004) return '2000–2004';
+  if (year <= 2009) return '2005–2009';
+  if (year <= 2014) return '2010–2014';
+  if (year <= 2019) return '2015–2019';
+  return '2020–2025';
+}
+
 /**
- * Builds the time-aligned topic evolution dataset, computing structural novice roles
- * ("Foundations", "Surveys & Bridges", "Recent Frontiers") across the full topic graph
- * before applying UI scope (Top 30 / 60 / 150 / All) while always retaining searched/selected papers.
+ * Builds the time-aligned topic evolution dataset, identifying "Crucial Pushers"
+ * across every evolutionary era of the topic plus "Recent Frontiers" (2023-2025)
+ * and a weighted Citation Backbone tracing how milestone works connect across eras.
  */
 export function buildTopicEvolutionGraph(
   nodes: CitationNode[],
@@ -1508,49 +1526,84 @@ export function buildTopicEvolutionGraph(
     inDegreeMap.set(l.target, (inDegreeMap.get(l.target) ?? 0) + 1);
   }
 
-  // 4. Dynamic per-topic structural thresholds for Foundations & Surveys/Bridges
-  const sortedIn = Array.from(inDegreeMap.values()).sort((a, b) => b - a);
-  const sortedOut = Array.from(outDegreeMap.values()).sort((a, b) => b - a);
-  const targetRankIdx = Math.min(
-    Math.max(0, rawTopicNodes.length - 1),
-    Math.min(45, Math.max(15, Math.round(rawTopicNodes.length * 0.1)))
-  );
-  const foundationCutoff = Math.max(4, sortedIn[targetRankIdx] ?? 4);
-  const bridgeCutoff = Math.max(4, sortedOut[targetRankIdx] ?? 4);
-
-  const enrichedNodes: TopicEvolutionNode[] = rawTopicNodes.map((n) => {
+  // 4. Score every paper and select top Crucial Pushers per evolutionary era (1990-2025)
+  const scoredDrafts = rawTopicNodes.map((n) => {
     const inDeg = inDegreeMap.get(n.id) ?? 0;
     const outDeg = outDegreeMap.get(n.id) ?? 0;
     const awardLabel = formatPaperAwardLabel(n.award);
-    const titleLower = n.title.toLowerCase();
-    const isSurveyTitle =
-      titleLower.includes('survey') ||
-      titleLower.includes('state of the art') ||
-      titleLower.includes('state-of-the-art') ||
-      titleLower.includes('taxonomy') ||
-      titleLower.includes('review');
-
-    const isFoundation = inDeg >= foundationCutoff;
-    const isSurveyOrBridge = outDeg >= bridgeCutoff || (isSurveyTitle && outDeg >= 2);
     const isRecentFrontier = n.year >= 2023 && n.year <= 2025;
+    const pusherEra = getTopicEraLabel(n.year);
+
     const influenceScore =
       n.citationCount * (0.6 + 0.4 * n.relevanceScore) +
       inDeg * 15 +
       (awardLabel ? 90 : 0);
 
+    // Crucial Pusher score emphasizes papers that drove intra-topic follow-ups, bridged eras,
+    // earned awards, and achieved strong citation traction within their era.
+    const bridgeMultiplier = inDeg > 0 && outDeg > 0 ? 1.15 : 1.0;
+    const pusherScore =
+      (inDeg * 28 +
+        Math.min(outDeg, 8) * 5 +
+        Math.log10(n.citationCount + 1) * 20 +
+        (awardLabel ? 45 : 0)) *
+      (0.75 + 0.25 * n.relevanceScore) *
+      bridgeMultiplier;
+
     return {
-      ...n,
-      inDegreeInTopic: inDeg,
-      outDegreeInTopic: outDeg,
-      totalDegreeInTopic: inDeg + outDeg,
-      influenceScore,
-      isFoundation,
-      isSurveyOrBridge,
-      isRecentFrontier,
-      isAwardWinner: Boolean(awardLabel),
+      node: n,
+      inDeg,
+      outDeg,
       awardLabel,
+      isRecentFrontier,
+      pusherEra,
+      influenceScore,
+      pusherScore,
     };
   });
+
+  const draftsByEra = new Map<string, typeof scoredDrafts>();
+  for (const d of scoredDrafts) {
+    const arr = draftsByEra.get(d.pusherEra);
+    if (arr) arr.push(d);
+    else draftsByEra.set(d.pusherEra, [d]);
+  }
+
+  const crucialPusherIdSet = new Set<string>();
+  for (const [, eraDrafts] of draftsByEra.entries()) {
+    eraDrafts.sort(
+      (a, b) =>
+        b.pusherScore - a.pusherScore ||
+        b.inDeg - a.inDeg ||
+        b.node.citationCount - a.node.citationCount
+    );
+    const quota = eraDrafts.length <= 3 ? 1 : 2;
+    for (let i = 0; i < Math.min(quota, eraDrafts.length); i++) {
+      const candidate = eraDrafts[i];
+      if (
+        candidate.inDeg > 0 ||
+        candidate.node.citationCount >= 5 ||
+        Boolean(candidate.awardLabel) ||
+        i === 0
+      ) {
+        crucialPusherIdSet.add(candidate.node.id);
+      }
+    }
+  }
+
+  const enrichedNodes: TopicEvolutionNode[] = scoredDrafts.map((d) => ({
+    ...d.node,
+    inDegreeInTopic: d.inDeg,
+    outDegreeInTopic: d.outDeg,
+    totalDegreeInTopic: d.inDeg + d.outDeg,
+    influenceScore: d.influenceScore,
+    pusherScore: d.pusherScore,
+    pusherEra: d.pusherEra,
+    isCrucialPusher: crucialPusherIdSet.has(d.node.id),
+    isRecentFrontier: d.isRecentFrontier,
+    isAwardWinner: Boolean(d.awardLabel),
+    awardLabel: d.awardLabel,
+  }));
 
   const maxTopicCitations = enrichedNodes.reduce(
     (max, n) => Math.max(max, n.citationCount),
@@ -1567,33 +1620,21 @@ export function buildTopicEvolutionGraph(
 
   const roleCounts = {
     all: enrichedNodes.length,
-    foundations: enrichedNodes.filter((n) => n.isFoundation).length,
-    bridges: enrichedNodes.filter((n) => n.isSurveyOrBridge).length,
+    pushers: enrichedNodes.filter((n) => n.isCrucialPusher).length,
     recent: enrichedNodes.filter((n) => n.isRecentFrontier).length,
   };
 
-  // 5. Filter by novice role pill
+  // 5. Filter by lens
   const roleFiltered = enrichedNodes.filter((n) => {
-    if (roleFilter === 'foundations') return n.isFoundation;
-    if (roleFilter === 'bridges') return n.isSurveyOrBridge;
+    if (roleFilter === 'pushers') return n.isCrucialPusher;
     if (roleFilter === 'recent') return n.isRecentFrontier;
     return true;
   });
 
-  // 6. Rank within the selected role so Top 30/60/150 surfaces the strongest exemplars
+  // 6. Rank within the selected lens
   const sortedPool = [...roleFiltered].sort((a, b) => {
-    if (roleFilter === 'foundations') {
-      return (
-        b.inDegreeInTopic - a.inDegreeInTopic ||
-        b.citationCount - a.citationCount ||
-        a.year - b.year
-      );
-    }
-    if (roleFilter === 'bridges') {
-      return (
-        b.outDegreeInTopic - a.outDegreeInTopic ||
-        b.influenceScore - a.influenceScore
-      );
+    if (roleFilter === 'pushers') {
+      return a.year - b.year || b.pusherScore - a.pusherScore;
     }
     if (roleFilter === 'recent') {
       return (
@@ -1606,10 +1647,22 @@ export function buildTopicEvolutionGraph(
   });
 
   const scopedNodes =
-    scope === 'all' ? sortedPool : sortedPool.slice(0, Math.max(1, scope));
+    scope === 'all' || roleFilter === 'pushers'
+      ? sortedPool
+      : sortedPool.slice(0, Math.max(1, scope));
   const visibleMap = new Map<string, TopicEvolutionNode>(
     scopedNodes.map((n) => [n.id, n])
   );
+
+  // When viewing All Papers at Top 30/60, ensure every Crucial Pusher is retained so
+  // the Citation Backbone stays continuous across all evolutionary moments.
+  if (roleFilter === 'all') {
+    for (const n of enrichedNodes) {
+      if (n.isCrucialPusher && !visibleMap.has(n.id)) {
+        visibleMap.set(n.id, n);
+      }
+    }
+  }
 
   // 7. Always include searched or selected papers so user selections never vanish
   const trimmedSearch = searchQuery.trim();
@@ -1639,9 +1692,45 @@ export function buildTopicEvolutionGraph(
     (l) => visibleIdSet.has(l.source) && visibleIdSet.has(l.target)
   );
 
+  // 8. Compute meaningful Citation Backbone across visible nodes
+  const visibleNodeById = new Map(visibleNodes.map((n) => [n.id, n]));
+  const maxBackboneLinks =
+    roleFilter === 'pushers'
+      ? 40
+      : Math.min(34, Math.max(18, Math.round(visibleNodes.length * 0.45)));
+
+  const backboneLinks: TopicBackboneLink[] = visibleLinks
+    .map((l) => {
+      const s = visibleNodeById.get(l.source);
+      const t = visibleNodeById.get(l.target);
+      if (!s || !t) return null;
+      const isBothPusher = s.isCrucialPusher && t.isCrucialPusher;
+      const touchesPusher = s.isCrucialPusher || t.isCrucialPusher;
+      const yearSpan = Math.max(0, s.year - t.year);
+      const crossEraBonus = s.pusherEra !== t.pusherEra ? 24 : 0;
+      const weight =
+        (isBothPusher ? 180 : touchesPusher ? 85 : 0) +
+        crossEraBonus +
+        Math.min(yearSpan, 15) * 2.5 +
+        t.inDegreeInTopic * 4 +
+        Math.log10(t.citationCount + 1) * 14 +
+        Math.log10(s.citationCount + 1) * 8;
+
+      return {
+        source: l.source,
+        target: l.target,
+        isPusherChain: isBothPusher || (touchesPusher && crossEraBonus > 0),
+        weight,
+      };
+    })
+    .filter((x): x is TopicBackboneLink => Boolean(x))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, maxBackboneLinks);
+
   return {
     visibleNodes,
     visibleLinks,
+    backboneLinks,
     allTopicNodes: enrichedNodes,
     allTopicLinks,
     allTopicCount: enrichedNodes.length,
@@ -1702,6 +1791,7 @@ export function computeTopicEvolutionPositions(
     maxCitations: number;
     minRelevance: number;
     maxRelevance: number;
+    spreadWithinYear?: boolean;
   }
 ): PositionedTopicEvolutionNode[] {
   const {
@@ -1712,6 +1802,7 @@ export function computeTopicEvolutionPositions(
     maxCitations,
     minRelevance,
     maxRelevance,
+    spreadWithinYear = false,
   } = dimensions;
 
   const yearSpan = Math.max(1, maxYear - minYear);
@@ -1741,7 +1832,8 @@ export function computeTopicEvolutionPositions(
 
   for (const node of ordered) {
     const clampedYear = Math.max(minYear, Math.min(maxYear, node.year));
-    const x = ((clampedYear - minYear) / yearSpan) * innerWidth;
+    const baseX = ((clampedYear - minYear) / yearSpan) * innerWidth;
+    let x = baseX;
 
     const normY =
       yAxisMode === 'citations'
@@ -1759,16 +1851,17 @@ export function computeTopicEvolutionPositions(
     );
 
     // Check nearby years (within ~2 years horizontally) for visual collisions
+    const yearKey = Math.round(clampedYear);
     const nearby: PositionedTopicEvolutionNode[] = [];
-    for (let yr = clampedYear - 2; yr <= clampedYear + 2; yr++) {
+    for (let yr = yearKey - 2; yr <= yearKey + 2; yr++) {
       const bucket = byYearBucket.get(yr);
       if (bucket) nearby.push(...bucket);
     }
 
-    const collidesAt = (cy: number): boolean => {
+    const collidesAt = (cx: number, cy: number): boolean => {
       for (const p of nearby) {
-        const minDist = r + p.r + 1.5;
-        if (Math.abs(x - p.x) < minDist && Math.abs(cy - p.y) < minDist) {
+        const minDist = r + p.r + (spreadWithinYear ? 4 : 1.5);
+        if (Math.abs(cx - p.x) < minDist && Math.abs(cy - p.y) < minDist) {
           return true;
         }
       }
@@ -1777,18 +1870,55 @@ export function computeTopicEvolutionPositions(
 
     let finalY = baseY;
     let jittered = false;
-    if (collidesAt(baseY)) {
+
+    if (spreadWithinYear) {
+      // Deterministic gentle horizontal fan-out within the zoomed year column before vertical jitter
+      const pxPerYear = innerWidth / yearSpan;
+      const maxXOffset = Math.min(82, pxPerYear * 0.34);
+      const xCandidates = [0];
+      for (let step = 14; step <= maxXOffset; step += 14) {
+        xCandidates.push(-step, step);
+      }
+      const yCandidates = [0, -10, 10, -20, 20, -30, 30];
+
+      // Deterministic sign flip per paper so clusters look naturally balanced
+      let hash = 0;
+      for (let i = 0; i < node.id.length; i++) {
+        hash = (hash * 31 + node.id.charCodeAt(i)) | 0;
+      }
+      const preferRight = (hash & 1) === 1;
+      const orderedX = preferRight
+        ? xCandidates.map((v) => -v)
+        : xCandidates;
+
+      let found = false;
+      for (const dy of yCandidates) {
+        const cy = baseY + dy;
+        if (cy < pad || cy > innerHeight - pad) continue;
+        for (const dx of orderedX) {
+          const cx = Math.max(pad, Math.min(innerWidth - pad, baseX + dx));
+          if (!collidesAt(cx, cy)) {
+            x = cx;
+            finalY = cy;
+            jittered = dx !== 0 || dy !== 0;
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+    } else if (collidesAt(baseX, baseY)) {
       // Deterministic alternating small vertical offsets (+step, -step, +2*step, ...)
       const step = nodes.length > 200 ? 5 : 7;
       for (let mag = step; mag <= maxJitter; mag += step) {
         const up = baseY - mag;
-        if (up >= pad && !collidesAt(up)) {
+        if (up >= pad && !collidesAt(baseX, up)) {
           finalY = up;
           jittered = true;
           break;
         }
         const down = baseY + mag;
-        if (down <= innerHeight - pad && !collidesAt(down)) {
+        if (down <= innerHeight - pad && !collidesAt(baseX, down)) {
           finalY = down;
           jittered = true;
           break;
@@ -1805,9 +1935,9 @@ export function computeTopicEvolutionPositions(
       jittered,
     };
     placed.push(positioned);
-    const list = byYearBucket.get(clampedYear);
+    const list = byYearBucket.get(yearKey);
     if (list) list.push(positioned);
-    else byYearBucket.set(clampedYear, [positioned]);
+    else byYearBucket.set(yearKey, [positioned]);
   }
 
   return placed;

@@ -34,7 +34,7 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
   const [scope, setScope] = useState<TopicEvolutionScope>(60);
   const [roleFilter, setRoleFilter] = useState<TopicEvolutionRoleFilter>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [showBackboneEdges, setShowBackboneEdges] = useState<boolean>(false);
+  const [showBackboneEdges, setShowBackboneEdges] = useState<boolean>(true);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
 
@@ -66,25 +66,44 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
+  const isRecentZoom = roleFilter === 'recent';
+  const xDomainMin = isRecentZoom ? 2022.55 : 1990;
+  const xDomainMax = isRecentZoom ? 2025.45 : 2025;
+  const xEraTicks = isRecentZoom ? [2023, 2024, 2025] : ERA_TICKS;
+
+  const effectiveMaxCitations = useMemo(() => {
+    if (!isRecentZoom || evolutionGraph.visibleNodes.length === 0) {
+      return evolutionGraph.maxTopicCitations;
+    }
+    return Math.max(
+      10,
+      ...evolutionGraph.visibleNodes.map((n) => n.citationCount)
+    );
+  }, [isRecentZoom, evolutionGraph.visibleNodes, evolutionGraph.maxTopicCitations]);
+
   const positionedNodes = useMemo(
     () =>
       computeTopicEvolutionPositions(evolutionGraph.visibleNodes, yAxisMode, {
         innerWidth,
         innerHeight,
-        minYear: 1990,
-        maxYear: 2025,
-        maxCitations: evolutionGraph.maxTopicCitations,
+        minYear: xDomainMin,
+        maxYear: xDomainMax,
+        maxCitations: effectiveMaxCitations,
         minRelevance: evolutionGraph.minTopicRelevance,
         maxRelevance: evolutionGraph.maxTopicRelevance,
+        spreadWithinYear: isRecentZoom,
       }),
     [
       evolutionGraph.visibleNodes,
-      evolutionGraph.maxTopicCitations,
+      effectiveMaxCitations,
       evolutionGraph.minTopicRelevance,
       evolutionGraph.maxTopicRelevance,
       yAxisMode,
       innerWidth,
       innerHeight,
+      xDomainMin,
+      xDomainMax,
+      isRecentZoom,
     ]
   );
 
@@ -119,11 +138,11 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
   // Compute exact Y-axis tick positions matching computeTopicEvolutionPositions
   const yTicks = useMemo(() => {
     if (yAxisMode === 'citations') {
-      const maxLog = Math.log10(Math.max(10, evolutionGraph.maxTopicCitations) + 1);
+      const maxLog = Math.log10(Math.max(10, effectiveMaxCitations) + 1);
       const result: Array<{ value: number; label: string; y: number }> = [];
       let lastY = Infinity;
       for (const c of CANDIDATE_CITATION_TICKS) {
-        if (c > evolutionGraph.maxTopicCitations * 1.08 && c > 10) continue;
+        if (c > effectiveMaxCitations * 1.08 && c > 10) continue;
         const normY = Math.log10(c + 1) / maxLog;
         const y = innerHeight - normY * (innerHeight - 16) - 8;
         if (y < 10 || y > innerHeight - 4) continue;
@@ -156,35 +175,33 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
     return result;
   }, [
     yAxisMode,
-    evolutionGraph.maxTopicCitations,
+    effectiveMaxCitations,
     evolutionGraph.minTopicRelevance,
     evolutionGraph.maxTopicRelevance,
     innerHeight,
   ]);
 
-  const xForYear = (yr: number) => ((yr - 1990) / (2025 - 1990)) * innerWidth;
+  const xForYear = (yr: number) =>
+    ((yr - xDomainMin) / (xDomainMax - xDomainMin)) * innerWidth;
 
-  // Optional subtle top backbone links (max 18) when user enables "Show Backbone Links"
+  // Meaningful Citation Backbone links (computed in analyticsLogic across eras & pushers)
   const backgroundBackboneLinks = useMemo(() => {
     if (!showBackboneEdges) return [];
-    return [...evolutionGraph.visibleLinks]
-      .map((l) => {
-        const s = nodeById.get(l.source);
-        const t = nodeById.get(l.target);
+    return evolutionGraph.backboneLinks
+      .map((b) => {
+        const s = nodeById.get(b.source);
+        const t = nodeById.get(b.target);
         if (!s || !t) return null;
         return {
-          link: l,
-          source: s,
-          target: t,
-          weight: s.citationCount + t.citationCount,
+          ...b,
+          sourceNode: s,
+          targetNode: t,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => Boolean(x))
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, 18);
-  }, [showBackboneEdges, evolutionGraph.visibleLinks, nodeById]);
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  }, [showBackboneEdges, evolutionGraph.backboneLinks, nodeById]);
 
-  // Collision-filtered landmark labels when idle, or focused lineage labels when active
+  // Collision-filtered landmark labels when idle, prioritizing Crucial Pushers across eras
   const visibleLabels = useMemo(() => {
     const candidates: Array<{ node: PositionedTopicEvolutionNode; priority: number }> = [];
 
@@ -206,12 +223,15 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
       }
     } else {
       for (const n of positionedNodes) {
-        candidates.push({ node: n, priority: n.influenceScore });
+        candidates.push({
+          node: n,
+          priority: n.isCrucialPusher ? n.influenceScore + 2500 : n.influenceScore,
+        });
       }
     }
 
     candidates.sort((a, b) => b.priority - a.priority);
-    const maxLabels = activeFocusId ? 14 : 9;
+    const maxLabels = activeFocusId ? 14 : roleFilter === 'pushers' ? 16 : 12;
     const placedBoxes: Array<{ x: number; y: number; w: number }> = [];
     const accepted: Array<{ node: PositionedTopicEvolutionNode; label: string }> = [];
 
@@ -271,25 +291,19 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
   }> = [
     {
       id: 'all',
-      label: 'All Shown',
-      hint: 'All papers in the current scope',
+      label: 'All Papers',
+      hint: 'All papers in the current scope alongside every era milestone',
       count: evolutionGraph.roleCounts.all,
     },
     {
-      id: 'foundations',
-      label: 'Foundations',
-      hint: 'Most cited by later papers inside this topic',
-      count: evolutionGraph.roleCounts.foundations,
-    },
-    {
-      id: 'bridges',
-      label: 'Surveys & Bridges',
-      hint: 'Papers citing many works in this topic — ideal for literature review',
-      count: evolutionGraph.roleCounts.bridges,
+      id: 'pushers',
+      label: 'Crucial Pushers',
+      hint: 'Top milestone papers driving each era of this topic (1990–2025)',
+      count: evolutionGraph.roleCounts.pushers,
     },
     {
       id: 'recent',
-      label: 'Recent Frontiers (2023–25)',
+      label: 'Recent Frontiers',
       hint: 'Latest papers published in 2023–2025',
       count: evolutionGraph.roleCounts.recent,
     },
@@ -336,7 +350,8 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
               Time-Aligned Topic Evolution &amp; Citation Lineage
             </h3>
             <span className="text-xs font-mono-tabular text-slate-500 whitespace-nowrap">
-              {positionedNodes.length} of {evolutionGraph.allTopicCount} papers shown · 1990–2025
+              {positionedNodes.length} of {evolutionGraph.allTopicCount} papers shown ·{' '}
+              {isRecentZoom ? '2023–2025' : '1990–2025'}
             </span>
           </div>
           <p className="text-xs text-slate-500">
@@ -404,62 +419,78 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
         </div>
       </div>
 
-      {/* Row 2: Novice "Where Should I Start?" Role Filters + Search Inclusion */}
+      {/* Row 2: Clean Lens Selector + Citation Backbone Toggle + Search */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-2 border-t border-slate-100">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-slate-700 mr-1 whitespace-nowrap">
-            Where Should I Start?
-          </span>
-          <div
-            className="flex flex-wrap items-center gap-1.5"
-            role="group"
-            aria-label="Novice structural role filters"
-          >
-            {roleOptions.map((role) => {
-              const active = roleFilter === role.id;
-              return (
-                <button
-                  key={role.id}
-                  type="button"
-                  data-testid={`role-filter-${role.id}`}
-                  title={role.hint}
-                  onClick={() => {
-                    setRoleFilter(role.id);
-                    setHoveredNodeId(null);
-                    setPinnedNodeId(null);
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+        <div
+          className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start"
+          role="group"
+          aria-label="Topic timeline lens"
+        >
+          {roleOptions.map((role) => {
+            const active = roleFilter === role.id;
+            return (
+              <button
+                key={role.id}
+                type="button"
+                data-testid={`role-filter-${role.id}`}
+                title={role.hint}
+                onClick={() => {
+                  setRoleFilter(role.id);
+                  setHoveredNodeId(null);
+                  setPinnedNodeId(null);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  active
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>{role.label}</span>
+                <span
+                  className={`font-mono-tabular text-[11px] ${
+                    active ? 'text-slate-500' : 'text-slate-400'
                   }`}
                 >
-                  <span>{role.label}</span>
-                  <span
-                    className={`font-mono-tabular text-[11px] ${
-                      active ? 'text-slate-300' : 'text-slate-400'
-                    }`}
-                  >
-                    {role.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {role.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={showBackboneEdges}
-              onChange={(e) => setShowBackboneEdges(e.target.checked)}
-              className="rounded border-slate-300 accent-slate-900 cursor-pointer"
-            />
-            <span>Subtle Backbone Links</span>
-          </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="toggle-backbone-btn"
+            aria-pressed={showBackboneEdges}
+            onClick={() => setShowBackboneEdges((v) => !v)}
+            title="Show or hide the evolutionary citation backbone connecting milestone pushers across eras"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 ${
+              showBackboneEdges
+                ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+            }`}
+          >
+            <svg
+              width="14"
+              height="10"
+              viewBox="0 0 14 10"
+              className="shrink-0"
+              aria-hidden="true"
+            >
+              <path
+                d="M12,7 Q7,1 2,5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <path d="M4.5,2.2L1.5,5.3L5.2,6.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Citation Backbone</span>
+          </button>
 
-          <div className="relative w-64">
+          <div className="relative w-60">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -491,22 +522,62 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
             className="w-3 h-3 rounded-full inline-block shrink-0"
             style={{ backgroundColor: activeTopic.color }}
           />
-          <span>Circle size = Citation count</span>
+          <span>Circle size = Citations</span>
+        </span>
+        <span className="text-slate-300">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="w-3 h-3 rounded-full inline-block shrink-0 border-2 border-slate-900"
+            style={{ backgroundColor: activeTopic.color }}
+          />
+          <span>Dark outline = Crucial Pusher (Era Milestone)</span>
         </span>
         <span className="text-slate-300">·</span>
         <span className="inline-flex items-center gap-1.5">
           <span className="w-3.5 h-3.5 rounded-full inline-block shrink-0 border-2 border-amber-500 bg-white" />
-          <span>Gold ring = Award paper (Best Paper / Hon. Mention / Test of Time)</span>
+          <span>Gold ring = Award</span>
         </span>
         <span className="text-slate-300">·</span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0 bg-amber-600" />
-          <span>Ancestors (Older Foundations Cited)</span>
+          <svg
+            width="18"
+            height="10"
+            viewBox="0 0 18 10"
+            className="shrink-0"
+            aria-hidden="true"
+          >
+            <line x1="17" y1="5" x2="5" y2="5" stroke="#475569" strokeWidth="1.8" strokeLinecap="round" />
+            <path d="M7,2L1.5,5L7,8Z" fill="#475569" />
+          </svg>
+          <span>Citation Backbone</span>
         </span>
         <span className="text-slate-300">·</span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0 bg-blue-600" />
-          <span>Descendants (Newer Follow-ups Citing)</span>
+          <svg
+            width="18"
+            height="10"
+            viewBox="0 0 18 10"
+            className="shrink-0"
+            aria-hidden="true"
+          >
+            <line x1="17" y1="5" x2="5" y2="5" stroke="#D97706" strokeWidth="2" strokeLinecap="round" />
+            <path d="M7,1.5L1,5L7,8.5Z" fill="#D97706" />
+          </svg>
+          <span>Ancestors</span>
+        </span>
+        <span className="text-slate-300">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg
+            width="18"
+            height="10"
+            viewBox="0 0 18 10"
+            className="shrink-0"
+            aria-hidden="true"
+          >
+            <line x1="17" y1="5" x2="5" y2="5" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
+            <path d="M7,1.5L1,5L7,8.5Z" fill="#2563EB" />
+          </svg>
+          <span>Descendants</span>
         </span>
       </div>
 
@@ -547,6 +618,17 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
             >
               <path d="M0,-3.5L8,0L0,3.5" fill="#2563EB" />
             </marker>
+            <marker
+              id="lineage-arrow-backbone"
+              viewBox="0 -4 8 8"
+              refX={7}
+              refY={0}
+              markerWidth={5.5}
+              markerHeight={5.5}
+              orient="auto"
+            >
+              <path d="M0,-3L7.5,0L0,3" fill="#475569" />
+            </marker>
           </defs>
 
           <g transform={`translate(${margin.left}, ${margin.top})`}>
@@ -580,16 +662,17 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
               {yAxisMode === 'citations' ? 'Citations (Log Scale)' : 'Topic Relevance'}
             </text>
 
-            {/* Subtle Vertical Era Gridlines (1990, 2000, 2010, 2020, 2025) */}
-            {ERA_TICKS.map((yr) => {
+            {/* Subtle Vertical Era Gridlines (1990-2025 or zoomed 2023-2025 for Recent Frontiers) */}
+            {xEraTicks.map((yr) => {
               const x = xForYear(yr);
+              const isEdgeTick = !isRecentZoom && (yr === 1990 || yr === 2025);
               return (
                 <g key={`era-${yr}`} transform={`translate(${x}, 0)`}>
                   <line
                     y1={0}
                     y2={innerHeight}
-                    stroke={yr === 1990 || yr === 2025 ? '#CBD5E1' : '#E2E8F0'}
-                    strokeDasharray={yr === 1990 || yr === 2025 ? undefined : '4,4'}
+                    stroke={isEdgeTick ? '#CBD5E1' : '#E2E8F0'}
+                    strokeDasharray={isEdgeTick ? undefined : '4,4'}
                     strokeWidth={1}
                   />
                   <text
@@ -603,16 +686,17 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
               );
             })}
 
-            {/* Optional Subtle Background Backbone Links (only when user enables toggle and idle) */}
+            {/* Citation Backbone Links (Emphasized evolutionary spine across eras & pushers) */}
             {!activeFocusId &&
               backgroundBackboneLinks.map((b, idx) => (
                 <path
-                  key={`bg-${b.link.source}-${b.link.target}-${idx}`}
-                  d={getCurvePath(b.target, b.source)}
+                  key={`bg-${b.source}-${b.target}-${idx}`}
+                  d={getCurvePath(b.sourceNode, b.targetNode)}
                   fill="none"
-                  stroke="#94A3B8"
-                  strokeWidth={1}
-                  strokeOpacity={0.22}
+                  stroke={b.isPusherChain ? '#475569' : '#64748B'}
+                  strokeWidth={b.isPusherChain ? 1.85 : 1.25}
+                  strokeOpacity={b.isPusherChain ? 0.58 : 0.34}
+                  markerEnd="url(#lineage-arrow-backbone)"
                   className="pointer-events-none"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -627,7 +711,7 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
                   return (
                     <path
                       key={`anc-link-${anc.id}-${idx}`}
-                      d={getCurvePath(anc, activeFocusNode)}
+                      d={getCurvePath(activeFocusNode, anc)}
                       fill="none"
                       stroke="#D97706"
                       strokeWidth={2}
@@ -642,7 +726,7 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
                   return (
                     <path
                       key={`desc-link-${desc.id}-${idx}`}
-                      d={getCurvePath(activeFocusNode, desc)}
+                      d={getCurvePath(desc, activeFocusNode)}
                       fill="none"
                       stroke="#2563EB"
                       strokeWidth={2}
@@ -684,9 +768,17 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
                 ? '#92400E'
                 : isDescendant
                 ? '#1E40AF'
+                : node.isCrucialPusher
+                ? '#0F172A'
                 : '#FFFFFF';
 
-              const strokeWidth = isFocus ? 2.8 : isSearchMatch ? 2.2 : 1.4;
+              const strokeWidth = isFocus
+                ? 2.8
+                : isSearchMatch
+                ? 2.2
+                : node.isCrucialPusher
+                ? 2
+                : 1.4;
 
               return (
                 <g
@@ -828,16 +920,12 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
                   </span>
                 </>
               )}
-              {hoveredNode.isFoundation && (
+              {hoveredNode.isCrucialPusher && (
                 <>
                   <span>·</span>
-                  <span className="text-amber-200">Foundation</span>
-                </>
-              )}
-              {hoveredNode.isSurveyOrBridge && (
-                <>
-                  <span>·</span>
-                  <span className="text-emerald-300">Bridge</span>
+                  <span className="text-sky-300 font-semibold">
+                    Crucial Pusher ({hoveredNode.pusherEra})
+                  </span>
                 </>
               )}
             </div>
