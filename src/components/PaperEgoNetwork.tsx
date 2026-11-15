@@ -593,9 +593,9 @@ export const PaperEgoNetwork: React.FC<PaperEgoNetworkProps> = ({
       <div className="flex flex-col xl:flex-row xl:flex-nowrap xl:items-start xl:justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900 whitespace-nowrap">
-              Local Ego-Network Graph · Citation &amp; Topic Lineage
-            </h2>
+            <h3 className="text-base font-bold text-slate-900 whitespace-nowrap">
+              3-sector Paper Connection
+            </h3>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono-tabular font-medium text-blue-800 bg-blue-50 border border-blue-200/80 rounded whitespace-nowrap shrink-0">
               <Info className="w-3 h-3 text-blue-600 shrink-0" />
               Plotting {plottedNeighborNodes.length} of {allFilteredCandidates.length} Connections

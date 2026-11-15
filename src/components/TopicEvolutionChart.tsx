@@ -347,7 +347,7 @@ export const TopicEvolutionChart: React.FC<TopicEvolutionChartProps> = ({
               id="topic-evolution-heading"
               className="text-lg font-bold tracking-tight text-slate-900"
             >
-              Time-Aligned Topic Evolution &amp; Citation Lineage
+              Citation Lineage
             </h3>
             <span className="text-xs font-mono-tabular text-slate-500 whitespace-nowrap">
               {positionedNodes.length} of {evolutionGraph.allTopicCount} papers shown ·{' '}
