@@ -1,4 +1,4 @@
-# VisLit Explorer (still a prototype)
+# VisLit Explorer
 
 **Live Demo:** [https://micyn.github.io/VisLit-Explorer/](https://micyn.github.io/VisLit-Explorer/)
 
