@@ -1244,7 +1244,7 @@ export const AuthorDetailView: React.FC<AuthorDetailViewProps> = ({
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Career Timeline
+                  Career Timeline (dual-axis)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Stacked bars show annual publications per topic; dark line overlays annual citation impact. Hover or click any year bar to pin and inspect its papers.
